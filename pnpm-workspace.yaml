@@ -1,2 +1,7 @@
 packages:
   - 'packages/*'
+
+# Grammars ship prebuilt WASM; their native node-gyp builds are not needed.
+ignoredBuiltDependencies:
+  - tree-sitter-c
+  - tree-sitter-cpp
