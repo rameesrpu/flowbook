@@ -22,18 +22,6 @@ Kick-off prompt for a new conversation:
 
 ## Track A — Webview (`packages/webview`)
 
-### A1. Large flows are unreadable at the "All" level
-
-- **Problem:** packet-handling at level=all fits at ~0.6 zoom; nested group boxes (module ▸
-  folder ▸ file) make the graph wide/tall and labels illegible. Modules/Folders read well.
-- **Approach:** choose the initial level from size (e.g. the deepest level whose fitted zoom
-  stays ≥ 0.85; persist the user's choice once they change it). Reduce group overhead: lighter
-  file boxes (header-only label, smaller padding), or hide file boxes when a folder holds one file.
-  Consider a min zoom for fitView with scroll instead of shrinking.
-- **Accept:** screenshots of `packet-handling` and `startup` at default level have labels
-  readable at 100% browser zoom; `examples/lua` flows (load them into the dev harness, or add a
-  harness param for another `.flowbook` dir) also open readable.
-
 ### A2. Kind-aware levels instead of depth-based
 
 - **Problem:** `collapseBelow(tree, depth)` collapses by depth, so a file at the root (`main.c`)
@@ -170,3 +158,7 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
 - C1. "Did you mean" hint for wrong anchor file paths (same-basename search).
 - A5. Webview imports `@flowbook/core/browser` (no zod): no `new Function` CSP violation;
   bundle 3,067 → 2,977 kB (766 → 740 kB gzip). The rest is elkjs (~1.6 MB) and shiki.
+- A1. Large flows open readable: initial level = most detailed level whose fitted zoom is ≥ 0.85
+  (until the user picks one); oversized graphs open at 0.85 from their start instead of shrinking;
+  single-child group chains share one box (`module / src / file.c`); slimmer file boxes. Dev
+  harness: `root=lua`.

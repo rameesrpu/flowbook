@@ -21,7 +21,7 @@ import {
   type FlowNodeData,
   type GroupData,
 } from './components';
-import { layoutFlow, type Layout } from './layout';
+import { fitScale, layoutFlow, READABLE_ZOOM, type Layout } from './layout';
 
 // Custom names: React Flow ships default styles for its built-in 'group' type.
 const nodeTypes = { fbNode: FlowNodeView, fbGroup: GroupView };
@@ -52,7 +52,7 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
   // A layout computed for an earlier flow or grouping must not be combined with the current one.
   const layout = laidOut?.projection === projection ? laidOut.layout : undefined;
   const [error, setError] = useState<string>();
-  const { fitView } = useReactFlow();
+  const { fitView, setViewport } = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,10 +68,22 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
     };
   }, [flow, tree, projection, collapsed]);
 
+  // Fit the graph, but never below a readable zoom: larger graphs open at their start (top
+  // left, where the scenario begins) and are panned.
   useEffect(() => {
-    if (layout)
-      requestAnimationFrame(() => fitView({ padding: 0.12, duration: 200, maxZoom: 1.2 }));
-  }, [layout, fitView]);
+    const el = wrapper.current;
+    if (!layout || !el) return;
+    requestAnimationFrame(() => {
+      const vp = { width: el.clientWidth, height: el.clientHeight };
+      if (fitScale(layout, vp) >= READABLE_ZOOM) {
+        void fitView({ padding: 0.12, duration: 200, maxZoom: 1.2 });
+        return;
+      }
+      const z = READABLE_ZOOM;
+      const x = layout.width * z < vp.width ? (vp.width - layout.width * z) / 2 : 24;
+      void setViewport({ x, y: 24, zoom: z }, { duration: 200 });
+    });
+  }, [layout, fitView, setViewport]);
 
   // Which visible items and edges relate to the current selection.
   const focus = useMemo(() => {
@@ -145,6 +157,7 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
       }
       const data: GroupData = {
         group: item.group,
+        merged: item.kind === 'group' ? item.merged : undefined,
         collapsed: item.kind === 'collapsed',
         nodeCount: item.kind === 'collapsed' ? item.nodeCount : undefined,
         hiddenSteps: item.kind === 'collapsed' ? item.hiddenSteps : undefined,

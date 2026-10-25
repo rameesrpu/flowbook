@@ -1,7 +1,7 @@
 /**
  * Standalone harness: renders the webview against the fixture workspace with a fake host.
  * URL params: ?flow=<id>&view=flow|sequence&level=modules|folders|files|all&select=<nodeId>
- *             &theme=light|dark&diag=1
+ *             &theme=light|dark&diag=1&root=fixture|lua (lua needs examples/lua/fetch.sh)
  */
 import { createRoot } from 'react-dom/client';
 import {
@@ -19,27 +19,38 @@ import { App, type Level, type PersistedState, type View } from '../src/App';
 import type { Host } from '../src/host';
 import { applyTheme } from './theme';
 
-const flowbookFiles = import.meta.glob('../../../fixtures/cpp-sample/.flowbook/**/*.jsonl', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
-const sourceFiles = import.meta.glob('../../../fixtures/cpp-sample/src/**/*.{c,cpp,h,hpp}', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
+const params = new URLSearchParams(location.search);
+const ROOTS = {
+  fixture: 'fixtures/cpp-sample/',
+  lua: 'examples/lua/',
+};
+const rootDir = ROOTS[params.get('root') === 'lua' ? 'lua' : 'fixture'];
 
-const rel = (key: string) => key.replace(/^.*fixtures\/cpp-sample\//, '');
-const files = Object.entries(flowbookFiles).map(([k, text]) => ({ path: rel(k), text }));
-const sources = new Map(Object.entries(sourceFiles).map(([k, text]) => [rel(k), text]));
+const flowbookFiles = import.meta.glob(
+  [
+    '../../../fixtures/cpp-sample/.flowbook/**/*.jsonl',
+    '../../../examples/lua/.flowbook/**/*.jsonl',
+  ],
+  { query: '?raw', import: 'default', eager: true },
+) as Record<string, string>;
+const sourceFiles = import.meta.glob(
+  ['../../../fixtures/cpp-sample/src/**/*.{c,cpp,h,hpp}', '../../../examples/lua/src/**/*.{c,h}'],
+  { query: '?raw', import: 'default', eager: true },
+) as Record<string, string>;
+
+const inRoot = (entries: Record<string, string>) =>
+  Object.entries(entries).flatMap(([k, text]) => {
+    const i = k.indexOf(rootDir);
+    return i < 0 ? [] : [[k.slice(i + rootDir.length), text] as const];
+  });
+const files = inRoot(flowbookFiles).map(([path, text]) => ({ path, text }));
+const sources = new Map(inRoot(sourceFiles));
 
 const ws = loadWorkspace(
   files.find((f) => f.path.endsWith('config.jsonl')),
   files.filter((f) => f.path.includes('/flows/')),
 );
 
-const params = new URLSearchParams(location.search);
 applyTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
 
 // --- Fake anchor resolution: find the symbol by regex instead of tree-sitter. ---------------
@@ -205,7 +216,7 @@ function mockHost(): Host {
   const listeners = new Set<(m: HostMessage) => void>();
   const send = (m: HostMessage, delay = 30) =>
     setTimeout(() => listeners.forEach((l) => l(m)), delay);
-  let current = params.get('flow') ?? 'startup';
+  let current = params.get('flow') ?? ws.flows[0]?.meta.id ?? 'startup';
   const initialFocus = params.get('select') ?? undefined;
 
   const view = params.get('view') === 'sequence' ? 'sequence' : 'flow';

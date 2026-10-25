@@ -12,6 +12,7 @@ import {
 } from '@flowbook/core/browser';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Flowchart } from './flowchart/Flowchart';
+import { firstReadable } from './flowchart/layout';
 import type { Host } from './host';
 import { SequenceView } from './sequence/SequenceView';
 import type { Selection } from './selection';
@@ -91,6 +92,9 @@ export function App({ host }: { host: Host }) {
   const [selection, setSelection] = useState<Selection>();
   const [snippets, setSnippets] = useState<Record<string, Loadable<Snippet>>>({});
   const [diffs, setDiffs] = useState<Record<string, Loadable<string>>>({});
+  // Level picked from the layout size for flows the user has not set a level on; not persisted.
+  const [autoLevels, setAutoLevels] = useState<Record<string, Level>>({});
+  const canvasRef = useRef<HTMLDivElement>(null);
   const pendingNav = useRef<string | undefined>(undefined);
   const payloadRef = useRef<FlowPayload | undefined>(undefined);
 
@@ -161,8 +165,38 @@ export function App({ host }: { host: Host }) {
   const tree = useMemo(() => payload && buildGroups(payload.flow.nodes, payload.groups), [payload]);
   const saved: FlowViewState = (flowId && persist.flows[flowId]) || {};
   const view: View = saved.view ?? 'flow';
-  const defaultLevel: Level = (payload?.flow.nodes.length ?? 0) > 16 ? 'modules' : 'all';
-  const level: Level = saved.level ?? defaultLevel;
+  const autoLevel = flowId ? autoLevels[flowId] : undefined;
+  const needsAutoLevel = !!payload && !saved.level && !saved.collapsed && !autoLevel;
+  const level: Level = saved.level ?? autoLevel ?? 'modules';
+
+  useEffect(() => {
+    if (!needsAutoLevel || !payload || !tree) return;
+    const el = canvasRef.current;
+    const id = payload.flow.meta.id;
+    // Most detailed first; levels that collapse the same groups are tried once.
+    const candidates: { level: Level; collapsed: Set<string> }[] = [];
+    for (const l of ['all', 'files', 'folders', 'modules'] as const) {
+      const c = levelCollapsed(tree, l);
+      if (!candidates.some((x) => sameSet(x.collapsed, c)))
+        candidates.push({ level: l, collapsed: c });
+    }
+    let cancelled = false;
+    const done = (l: Level) => !cancelled && setAutoLevels((s) => ({ ...s, [id]: l }));
+    if (!el?.clientWidth) done('modules');
+    else
+      firstReadable(
+        payload.flow,
+        tree,
+        candidates.map((c) => c.collapsed),
+        { width: el.clientWidth, height: el.clientHeight },
+      ).then(
+        (i) => done(candidates[i]!.level),
+        () => done('modules'),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [needsAutoLevel, payload, tree]);
 
   const savedCollapsed = saved.collapsed;
   const collapsed = useMemo<ReadonlySet<string>>(() => {
@@ -350,9 +384,9 @@ export function App({ host }: { host: Host }) {
         </button>
       </header>
       <div className="fb-main">
-        <div className="fb-canvas">
+        <div className="fb-canvas" ref={canvasRef}>
           <ErrorBoundary resetKey={`${flowId}:${view}`}>
-            {view === 'flow' ? (
+            {needsAutoLevel ? null : view === 'flow' ? (
               <Flowchart
                 payload={payload}
                 tree={tree}

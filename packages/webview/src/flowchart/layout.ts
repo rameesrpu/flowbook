@@ -1,5 +1,12 @@
 import ELK, { type ElkExtendedEdge, type ElkNode } from 'elkjs/lib/elk.bundled.js';
-import type { Flow, Group, GroupTree, Projection, VisibleEdge } from '@flowbook/core/browser';
+import {
+  project,
+  type Flow,
+  type Group,
+  type GroupTree,
+  type Projection,
+  type VisibleEdge,
+} from '@flowbook/core/browser';
 import { textWidth, truncate } from '../measure';
 import { BLOCK_ICON } from '../model';
 
@@ -12,7 +19,13 @@ export interface Box {
 
 export type LaidOutItem =
   | ({ kind: 'node'; id: string } & Box)
-  | ({ kind: 'group'; id: string; group: Group } & Box)
+  | ({
+      kind: 'group';
+      id: string;
+      group: Group;
+      /** Single-child groups drawn inside this box's header instead of as nested boxes. */
+      merged: Group[];
+    } & Box)
   | ({ kind: 'collapsed'; id: string; group: Group; nodeCount: number; hiddenSteps: number } & Box);
 
 export interface EdgeLabelParts {
@@ -32,7 +45,15 @@ export interface LaidOutEdge {
 export interface Layout {
   items: LaidOutItem[];
   edges: LaidOutEdge[];
+  width: number;
+  height: number;
 }
+
+type Viewport = { width: number; height: number };
+
+/** Zoom at which a layout fits the viewport (with the padding fitView uses). */
+export const fitScale = (l: { width?: number; height?: number }, viewport: Viewport) =>
+  Math.min(viewport.width / ((l.width ?? 1) * 1.12), viewport.height / ((l.height ?? 1) * 1.12));
 
 type ItemMeta = LaidOutItem extends infer T
   ? T extends unknown
@@ -48,6 +69,7 @@ const NODE_MAX = 260;
 export const SYMBOL_CHARS = 34;
 export const LABEL_CHARS = 42;
 const GROUP_HEADER = 30;
+const FILE_HEADER = 24;
 
 export function edgeLabel(e: VisibleEdge, flow: Flow): EdgeLabelParts {
   const first = e.seqs[0]!;
@@ -100,7 +122,7 @@ export async function layoutFlow(
   projection: Projection,
   collapsed: ReadonlySet<string>,
   /** Size of the canvas; without an explicit direction, the direction that fits it best wins. */
-  viewport?: { width: number; height: number },
+  viewport?: Viewport,
 ): Promise<Layout> {
   // Order nodes by first appearance in the scenario.
   const order = new Map<string, number>();
@@ -140,16 +162,31 @@ export async function layoutFlow(
       });
       return { id, ...nodeSize(g.label, `${countNodes(tree, id)} nodes · 99 internal steps`, 34) };
     }
-    items.set(id, { kind: 'group', id, group: g });
-    const headerWidth = textWidth(g.label, 12, { bold: true }) + 40;
+    // A group whose only content is one expanded group (module ▸ src/ ▸ file.c) is drawn as one
+    // box with a combined header; nesting boxes there only costs space.
+    const merged: Group[] = [];
+    let inner = g;
+    while (inner.nodes.length === 0 && inner.children.length === 1) {
+      const c = tree.groups.get(inner.children[0]!)!;
+      if (collapsed.has(c.id)) break;
+      merged.push(c);
+      inner = c;
+    }
+    items.set(id, { kind: 'group', id, group: g, merged });
+    const header = [g, ...merged].map((x) => x.label).join(' / ');
+    const headerWidth = textWidth(header, 12, { bold: true }) + 40;
+    const padding =
+      g.kind === 'file'
+        ? `[top=${FILE_HEADER},left=8,bottom=8,right=8]`
+        : `[top=${GROUP_HEADER},left=12,bottom=12,right=12]`;
     return {
       id,
       layoutOptions: {
-        'elk.padding': `[top=${GROUP_HEADER},left=12,bottom=12,right=12]`,
+        'elk.padding': padding,
         'elk.nodeSize.constraints': 'MINIMUM_SIZE',
         'elk.nodeSize.minimum': `(${headerWidth}, 40)`,
       },
-      children: [...g.children, ...g.nodes]
+      children: [...inner.children, ...inner.nodes]
         .sort(byRank)
         .map((c) => (tree.groups.has(c) ? group(c) : leaf(c))),
     };
@@ -185,7 +222,7 @@ export async function layoutFlow(
       'elk.edgeRouting': 'ORTHOGONAL',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '70',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '50',
       'elk.layered.spacing.edgeNodeBetweenLayers': '20',
       'elk.spacing.nodeNode': '28',
       'elk.spacing.edgeEdge': '14',
@@ -204,12 +241,7 @@ export async function layoutFlow(
     result = await elk.layout(graph(explicit === 'TB' ? 'DOWN' : 'RIGHT'));
   } else {
     const [lr, tb] = await Promise.all([elk.layout(graph('RIGHT')), elk.layout(graph('DOWN'))]);
-    const scale = (r: ElkNode) =>
-      Math.min(
-        viewport.width / ((r.width ?? 1) + 60),
-        viewport.height / ((r.height ?? 1) + 60),
-        1.2,
-      );
+    const scale = (r: ElkNode) => Math.min(fitScale(r, viewport), 1.2);
     result = scale(tb) > scale(lr) * 1.1 ? tb : lr;
   }
 
@@ -256,5 +288,31 @@ export async function layoutFlow(
   };
   collectEdges(result);
 
-  return { items: laidOut, edges: laidOutEdges };
+  return {
+    items: laidOut,
+    edges: laidOutEdges,
+    width: result.width ?? 0,
+    height: result.height ?? 0,
+  };
+}
+
+/** Labels stay legible down to this zoom; below it a coarser grouping level reads better. */
+export const READABLE_ZOOM = 0.85;
+
+/**
+ * Returns the index of the first candidate grouping (ordered most detailed first) whose layout
+ * fits the viewport at a readable zoom, or the last candidate if none does.
+ */
+export async function firstReadable(
+  flow: Flow,
+  tree: GroupTree,
+  candidates: ReadonlySet<string>[],
+  viewport: Viewport,
+): Promise<number> {
+  for (let i = 0; i < candidates.length - 1; i++) {
+    const collapsed = candidates[i]!;
+    const l = await layoutFlow(flow, tree, project(flow, tree, collapsed), collapsed, viewport);
+    if (fitScale(l, viewport) >= READABLE_ZOOM) return i;
+  }
+  return candidates.length - 1;
 }

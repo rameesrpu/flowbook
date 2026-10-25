@@ -71,7 +71,8 @@ test → strict fixture check → package. Run that sequence before pushing.
   and check `--strict` stays clean.
 - UI changes: verify visually. Run the webview dev server and screenshot with headless Chrome:
   `google-chrome --headless=new --disable-gpu --hide-scrollbars --window-size=1440,900 --virtual-time-budget=8000 --screenshot=out.png 'http://localhost:5179/?flow=packet-handling&view=flow&level=all&select=valid-type&theme=dark'`
-  (params: `flow`, `view=flow|sequence`, `level=modules|folders|files|all`, `select`, `theme=light|dark`, `diag=1`, `panel=0`).
+  (params: `flow`, `view=flow|sequence`, `level=modules|folders|files|all` (omit for the auto level), `select`,
+  `theme=light|dark`, `diag=1`, `panel=0`, `root=lua` for the Lua example after `examples/lua/fetch.sh`).
 
 ## Working with subagents
 

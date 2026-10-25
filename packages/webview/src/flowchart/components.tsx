@@ -27,6 +27,8 @@ export interface FlowNodeData extends Record<string, unknown> {
 
 export interface GroupData extends Record<string, unknown> {
   group: Group;
+  /** Single-child groups merged into this box's header. */
+  merged?: Group[];
   collapsed: boolean;
   nodeCount?: number;
   hiddenSteps?: number;
@@ -145,7 +147,7 @@ export function GroupView({ data }: NodeProps & { data: GroupData }) {
       <Handles />
       <button
         className="fb-group__header"
-        title={`${KIND_LABEL[group.kind]} ${group.path ?? group.label} — click to collapse`}
+        title={`${[group, ...(data.merged ?? [])].map((g) => `${KIND_LABEL[g.kind]} ${g.path ?? g.label}`).join(' › ')} — click to collapse`}
         onClick={(e) => {
           e.stopPropagation();
           data.onToggle(group.id);
@@ -153,7 +155,15 @@ export function GroupView({ data }: NodeProps & { data: GroupData }) {
       >
         <span className="fb-group__chevron">▾</span>
         <span className="fb-group__icon">{KIND_ICON[group.kind]}</span>
-        <span className="fb-group__label">{group.label}</span>
+        <span className="fb-group__label">
+          {group.label}
+          {data.merged?.map((g) => (
+            <span key={g.id} className="fb-group__merged">
+              {' / '}
+              {g.label}
+            </span>
+          ))}
+        </span>
       </button>
     </div>
   );

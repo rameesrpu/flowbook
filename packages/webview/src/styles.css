@@ -558,6 +558,15 @@ pre {
   color: var(--fb-link);
 }
 
+.fb-group--file > .fb-group__header {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.fb-group__merged {
+  font-weight: 400;
+}
+
 .fb-group__label {
   overflow: hidden;
   text-overflow: ellipsis;
