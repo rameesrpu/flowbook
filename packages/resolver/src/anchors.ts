@@ -4,7 +4,7 @@ import type { SymbolInfo } from './symbols.js';
 
 export type AnchorState =
   | { state: 'fresh' | 'stale' | 'unstamped'; symbol: SymbolInfo }
-  | { state: 'missing-file' }
+  | { state: 'missing-file'; suggestions: string[] }
   | { state: 'missing'; suggestions: SymbolInfo[] }
   | { state: 'ambiguous'; candidates: SymbolInfo[] };
 
@@ -13,11 +13,15 @@ export type AnchorStatus = AnchorState & { flow: Flow; node: Located<NodeRecord>
 /** Reads a repo-relative source file, or returns undefined if it does not exist. */
 export type ReadSource = (path: string) => string | undefined;
 
+/** Lists repo-relative file paths; only called when an anchor's file is missing. */
+export type ListFiles = () => string[];
+
 /** Resolves every anchored node in the workspace and compares fingerprints. */
 export function checkAnchors(
   ws: Workspace,
   readSource: ReadSource,
   resolver: Resolver,
+  listFiles?: ListFiles,
 ): AnchorStatus[] {
   const symbolsByFile = new Map<string, SymbolInfo[] | undefined>();
   const symbols = (file: string) => {
@@ -27,13 +31,30 @@ export function checkAnchors(
     }
     return symbolsByFile.get(file);
   };
+  let byBasename: Map<string, string[]> | undefined;
+  const sameBasename = (file: string) => {
+    if (!listFiles) return [];
+    if (!byBasename) {
+      byBasename = new Map();
+      for (const f of listFiles()) {
+        const key = basename(f).toLowerCase();
+        byBasename.set(key, [...(byBasename.get(key) ?? []), f]);
+      }
+    }
+    return byBasename.get(basename(file).toLowerCase()) ?? [];
+  };
   const out: AnchorStatus[] = [];
   for (const flow of ws.flows) {
     for (const node of flow.nodes) {
       if (!node.anchor) continue;
       const syms = symbols(node.anchor.file);
       if (!syms) {
-        out.push({ flow, node, state: 'missing-file' });
+        out.push({
+          flow,
+          node,
+          state: 'missing-file',
+          suggestions: sameBasename(node.anchor.file),
+        });
         continue;
       }
       const r = resolver.match(node.anchor, syms);
@@ -48,6 +69,8 @@ export function checkAnchors(
   }
   return out;
 }
+
+const basename = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 const describe = (s: SymbolInfo) => `${s.symbol}${s.sig} (line ${s.nameLine + 1})`;
 
@@ -70,13 +93,17 @@ export function anchorDiagnostics(statuses: AnchorStatus[], strictStale = false)
       case 'unstamped':
         unstamped.set(s.flow, [...(unstamped.get(s.flow) ?? []), s.node.id]);
         break;
-      case 'missing-file':
+      case 'missing-file': {
+        const hint = s.suggestions.length
+          ? `; did you mean ${s.suggestions.slice(0, 3).join(', ')}?`
+          : '; anchor paths are relative to the directory containing .flowbook/';
         out.push({
           ...base,
           severity: 'error',
-          message: `source file not found: ${s.node.anchor!.file}`,
+          message: `source file not found: ${s.node.anchor!.file}${hint}`,
         });
         break;
+      }
       case 'missing': {
         const hint = s.suggestions.length
           ? `; did you mean ${s.suggestions.slice(0, 3).map(describe).join(', ')}?`

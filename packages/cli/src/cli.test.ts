@@ -61,6 +61,14 @@ describe('check', () => {
     );
   });
 
+  it('suggests files with the same name for a wrong anchor path', () => {
+    edit('.flowbook/flows/startup.jsonl', '"file":"src/util/log.c"', '"file":"log.c"');
+    expect(check(ctx)).toBe(1);
+    expect(out.join('\n')).toMatch(
+      /startup\.jsonl:3: error: source file not found: log\.c; did you mean src\/util\/log\.c\?/,
+    );
+  });
+
   it('asks for a signature when an anchor hits an overload', () => {
     edit('.flowbook/flows/startup.jsonl', ',"sig":"(Timer*)"', '');
     expect(check(ctx)).toBe(1);

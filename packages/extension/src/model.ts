@@ -16,6 +16,7 @@ import {
 import {
   anchorDiagnostics,
   checkAnchors,
+  fileLister,
   readWorkspace,
   sourceReader,
   type AnchorStatus,
@@ -40,7 +41,7 @@ export function loadRoot(
   read: ReadSource = sourceReader(root),
 ): RootState {
   const ws = readWorkspace(root);
-  const statuses = checkAnchors(ws, read, resolver);
+  const statuses = checkAnchors(ws, read, resolver, fileLister(root));
   return { root, ws, statuses, diagnostics: [...ws.diagnostics, ...anchorDiagnostics(statuses)] };
 }
 

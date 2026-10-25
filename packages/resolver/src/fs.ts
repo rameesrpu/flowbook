@@ -7,7 +7,7 @@ import {
   loadWorkspace,
   type Workspace,
 } from '@flowbook/core';
-import type { ReadSource } from './anchors.js';
+import type { ListFiles, ReadSource } from './anchors.js';
 
 /** Walks up from `start` to the nearest directory containing `.flowbook/`. */
 export function findRoot(start: string): string | undefined {
@@ -48,5 +48,36 @@ export function sourceReader(root: string): ReadSource {
     } catch {
       return undefined;
     }
+  };
+}
+
+const SKIP_DIRS = new Set(['node_modules', 'build', 'out', 'dist', 'target', 'bin', 'obj']);
+const MAX_FILES = 50_000;
+
+/**
+ * Lists repo-relative file paths under `root` for "did you mean" hints. Skips hidden and build
+ * directories and stops after MAX_FILES entries so huge trees stay cheap.
+ */
+export function fileLister(root: string): ListFiles {
+  return () => {
+    const out: string[] = [];
+    const walk = (rel: string) => {
+      let entries;
+      try {
+        entries = readdirSync(join(root, rel), { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (out.length >= MAX_FILES) return;
+        if (e.name.startsWith('.')) continue;
+        const path = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) {
+          if (!SKIP_DIRS.has(e.name) && !e.name.startsWith('cmake-build-')) walk(path);
+        } else if (e.isFile()) out.push(path);
+      }
+    };
+    walk('');
+    return out.sort();
   };
 }

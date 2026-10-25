@@ -96,13 +96,6 @@ Kick-off prompt for a new conversation:
 
 ## Track C — Resolver / CLI / skill (`packages/resolver`, `packages/cli`, `skill/`)
 
-### C1. Hint for wrong anchor file paths
-
-- **Problem (from Lua dogfooding):** `source file not found: lua.c` gives no hint.
-- **Approach:** in `checkAnchors`/`anchorDiagnostics`, when a file is missing, search the root
-  (bounded, skip `node_modules`, `.git`, build dirs) for files with the same basename and suggest
-  them: `did you mean src/lua.c?`. Cache the file index per check run. CLI test.
-
 ### C2. Lua example in CI
 
 - Add a CI job (or step) that runs `examples/lua/fetch.sh` and
@@ -183,3 +176,4 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
 
 - v0.1 rebuild — core, resolver, CLI, webview, extension, skill, Lua example, CI (`4310f43`).
 - D2. License: MIT (`LICENSE` at the root and in `packages/extension/` for vsce).
+- C1. "Did you mean" hint for wrong anchor file paths (same-basename search).

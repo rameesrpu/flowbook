@@ -4,6 +4,7 @@ import type { Anchor } from '@flowbook/core';
 import {
   anchorDiagnostics,
   checkAnchors,
+  fileLister,
   headCommitFor,
   readWorkspace,
   sourceReader,
@@ -20,7 +21,7 @@ export interface Context {
 
 export function check(ctx: Context, opts: { strict?: boolean; json?: boolean } = {}): number {
   const ws = readWorkspace(ctx.root);
-  const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver);
+  const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver, fileLister(ctx.root));
   const diagnostics = sortDiagnostics([
     ...ws.diagnostics,
     ...anchorDiagnostics(statuses, opts.strict),
@@ -109,9 +110,12 @@ export function stamp(ctx: Context, flowIds: string[], all = false): number {
     return commits.get(file);
   };
   let outsideGit = false;
-  const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver).filter((s) =>
-    wanted.has(s.flow.meta.id),
-  );
+  const statuses = checkAnchors(
+    ws,
+    sourceReader(ctx.root),
+    ctx.resolver,
+    fileLister(ctx.root),
+  ).filter((s) => wanted.has(s.flow.meta.id));
   let failed = 0;
   for (const flow of ws.flows.filter((f) => wanted.has(f.meta.id))) {
     const mine = statuses.filter((s) => s.flow === flow);
@@ -153,9 +157,12 @@ export function stamp(ctx: Context, flowIds: string[], all = false): number {
 /** Lists nodes whose code changed or can no longer be found — an agent's update to-do list. */
 export function stale(ctx: Context, opts: { json?: boolean } = {}): number {
   const ws = readWorkspace(ctx.root);
-  const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver).filter(
-    (s) => s.state !== 'fresh' && s.state !== 'unstamped',
-  );
+  const statuses = checkAnchors(
+    ws,
+    sourceReader(ctx.root),
+    ctx.resolver,
+    fileLister(ctx.root),
+  ).filter((s) => s.state !== 'fresh' && s.state !== 'unstamped');
   const rows = statuses.map((s) => ({
     flow: s.flow.meta.id,
     node: s.node.id,
