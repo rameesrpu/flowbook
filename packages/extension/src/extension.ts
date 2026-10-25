@@ -24,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
   const resolver = await Resolver.create({ wasmDir: join(context.extensionPath, 'dist') });
   const flowbook = new Flowbook(resolver, log);
   const tree = new FlowsTree(flowbook);
-  const panels = new Panels(flowbook, context.extensionUri);
+  const panels = new Panels(flowbook, context.extensionUri, log);
   context.subscriptions.push(flowbook, panels);
 
   const open = (root: string, flowId: string, focus?: string) => panels.show(root, flowId, focus);

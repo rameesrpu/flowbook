@@ -57,4 +57,6 @@ export type WebviewMessage =
   | { type: 'openFlowFile'; line?: number }
   | { type: 'requestSnippet'; nodeId: string }
   | { type: 'requestDiff'; nodeId: string }
-  | { type: 'copy'; text: string };
+  | { type: 'copy'; text: string }
+  /** An uncaught error in the webview, reported so the host can log it. */
+  | { type: 'error'; message: string };

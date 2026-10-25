@@ -29,6 +29,8 @@ export function vscodeHost(): Host {
       return () => window.removeEventListener('message', listener);
     },
     getState: <T>() => api.getState() as T | undefined,
-    setState: (s) => api.setState(s),
+    setState: (s) => {
+      api.setState(s);
+    },
   };
 }

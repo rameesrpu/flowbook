@@ -94,7 +94,10 @@ export function App({ host }: { host: Host }) {
   const pendingNav = useRef<string | undefined>(undefined);
   const payloadRef = useRef<FlowPayload | undefined>(undefined);
 
-  useEffect(() => host.setState(persist), [host, persist]);
+  // VS Code's setState returns the state; an effect must not return a non-function.
+  useEffect(() => {
+    host.setState(persist);
+  }, [host, persist]);
 
   useEffect(() => {
     const off = host.onMessage((m: HostMessage) => {

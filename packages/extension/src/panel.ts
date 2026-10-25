@@ -21,6 +21,8 @@ interface FlowPanel {
   /** Node to select on the next `load`; cleared once sent. */
   focus?: string;
   ready: boolean;
+  /** Errors reported by the webview, for the output channel and tests. */
+  errors: string[];
 }
 
 /** One webview panel per open flow. Navigation inside a panel reuses it. */
@@ -31,6 +33,7 @@ export class Panels implements vscode.Disposable {
   constructor(
     private readonly flowbook: Flowbook,
     private readonly extensionUri: vscode.Uri,
+    private readonly log: vscode.OutputChannel,
   ) {
     this.subscription = flowbook.onDidChange(() => {
       for (const p of this.panels) this.load(p);
@@ -43,8 +46,13 @@ export class Panels implements vscode.Disposable {
   }
 
   /** Panels currently open, for tests. */
-  get open(): { root: string; flowId: string; ready: boolean }[] {
-    return [...this.panels].map(({ root, flowId, ready }) => ({ root, flowId, ready }));
+  get open(): { root: string; flowId: string; ready: boolean; errors: string[] }[] {
+    return [...this.panels].map(({ root, flowId, ready, errors }) => ({
+      root,
+      flowId,
+      ready,
+      errors,
+    }));
   }
 
   show(root: string, flowId: string, focus?: string) {
@@ -65,7 +73,7 @@ export class Panels implements vscode.Disposable {
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [webviewRoot] },
     );
     panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'flowbook.svg');
-    const entry: FlowPanel = { panel, root, flowId, focus, ready: false };
+    const entry: FlowPanel = { panel, root, flowId, focus, ready: false, errors: [] };
     this.panels.add(entry);
     panel.webview.html = this.html(panel.webview, webviewRoot);
     panel.onDidDispose(() => this.panels.delete(entry));
@@ -106,6 +114,18 @@ export class Panels implements vscode.Disposable {
         p.flowId = m.flowId;
         p.focus = m.focus;
         this.load(p);
+        return;
+      case 'error':
+        p.errors.push(m.message);
+        this.log.appendLine(`[webview ${p.flowId}] ${m.message}`);
+        if (p.errors.length === 1) {
+          void vscode.window
+            .showErrorMessage(
+              `Flowbook: the diagram view failed: ${m.message.split('\n')[0]}`,
+              'Show log',
+            )
+            .then((pick) => pick && this.log.show());
+        }
         return;
       case 'copy':
         await vscode.env.clipboard.writeText(m.text);
@@ -243,8 +263,24 @@ and then <code>pnpm --filter flowbook build</code>, and reopen this flow.</p></b
     const css = existsSync(join(root.fsPath, 'webview.css'))
       ? `<link rel="stylesheet" href="${asset('webview.css')}">`
       : '';
+    // A classic script runs before the module bundle: it shows load failures in the page (and
+    // reports them) so a broken bundle is never just a blank tab.
+    const boot = `(() => {
+  const vscode = acquireVsCodeApi();
+  window.acquireVsCodeApi = () => vscode;
+  const show = (msg) => {
+    const el = document.getElementById('fb-boot');
+    if (el) el.textContent = 'Flowbook could not start: ' + msg;
+    vscode.postMessage({ type: 'error', message: msg });
+  };
+  window.addEventListener('error', (e) => {
+    if (document.getElementById('fb-boot')) show((e.error && e.error.stack) || e.message || 'failed to load ' + (e.target && e.target.src));
+  }, true);
+  setTimeout(() => document.getElementById('fb-boot') && show('the diagram script did not start within 15 s'), 15000);
+})();`;
     return `<!DOCTYPE html><html lang="en"><head>${head}
-${css}</head><body><div id="root"></div>
+${css}</head><body><div id="root"><p id="fb-boot" style="padding: 1em; opacity: .7">Loading Flowbook…</p></div>
+<script nonce="${nonce}">${boot}</script>
 <script type="module" nonce="${nonce}" src="${asset('webview.js')}"></script>
 </body></html>`;
   }

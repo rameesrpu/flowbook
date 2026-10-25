@@ -2,13 +2,17 @@ import { Component, type ReactNode } from 'react';
 
 /** Keeps a rendering bug in one view from blanking the whole webview. */
 export class ErrorBoundary extends Component<
-  { children: ReactNode; resetKey: unknown },
+  { children: ReactNode; resetKey: unknown; onError?: (error: Error) => void },
   { error?: Error; key?: unknown }
 > {
   state: { error?: Error; key?: unknown } = {};
 
   static getDerivedStateFromError(error: Error) {
     return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError?.(error);
   }
 
   static getDerivedStateFromProps(
@@ -23,7 +27,7 @@ export class ErrorBoundary extends Component<
       return (
         <div className="fb-error">
           <strong>Something went wrong while drawing this view.</strong>
-          <pre>{this.state.error.message}</pre>
+          <pre>{this.state.error.stack ?? this.state.error.message}</pre>
         </div>
       );
     }

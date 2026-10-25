@@ -40,6 +40,10 @@ exports.run = async function run() {
     // The webview script ran under the CSP and asked for its payload.
     await waitFor(() => api.panels.open[0].ready, 'webview ready message', 20000);
     console.log('webview ready');
+    // Give the diagram time to render; the webview reports any uncaught error to the host.
+    await new Promise((r) => setTimeout(r, 3000));
+    assert.deepEqual(api.panels.open[0].errors, [], 'webview errors');
+    console.log('webview rendered without errors');
   } else console.log('webview not built; skipped ready check');
 
   const summary = await vscode.commands.executeCommand('flowbook.check');
