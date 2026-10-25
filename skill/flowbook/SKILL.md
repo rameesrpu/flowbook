@@ -40,7 +40,9 @@ Never write `fp` or `verified` by hand — `stamp` owns them.
    "Config reload". Not "the networking module". Choose a kebab-case id; the file is
    `.flowbook/flows/<id>.jsonl`.
 2. **Read the code path** end to end before writing. Follow the real calls, including
-   callbacks, function pointers, virtual dispatch and thread hand-offs.
+   callbacks, function pointers, virtual dispatch and thread hand-offs. Use any code-navigation
+   tools you have (LSP, call-graph or code-graph tools) to find callers and callees, then confirm
+   each step in the source.
 3. **Get exact anchors** with `flowbook resolve <file>` for each file you touch. Copy the anchor
    JSON as printed: it includes `sig` only when the name is overloaded. Anchor to the
    _definition_ (the `.cpp` for out-of-line methods, the header for inline ones/templates).
