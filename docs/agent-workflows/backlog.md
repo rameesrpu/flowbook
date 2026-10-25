@@ -123,14 +123,53 @@ Kick-off prompt for a new conversation:
   install (vsix), quick start for agents (skill + CLI), file format summary linking
   `skill/flowbook/references/schema.md`, development commands.
 
-### D2. License — **needs the user's decision** (MIT vs Apache-2.0). Then add `LICENSE`, set
-
-`license` in package.json files, drop `--skip-license` from the extension's package script.
-
 ### D3. Marketplace publishing (later)
+
+Full checklist (incl. the maintainer's manual account steps): [docs/publishing.md](../publishing.md).
 
 - Publisher account, icon PNG (128×128), `galleryBanner`, categories/keywords, CHANGELOG,
   release workflow publishing to VS Code Marketplace and Open VSX on tags.
+
+## Track E — Notation & embedded/RTOS fit (parked; cross-cutting, touches core schema)
+
+Context: embedded firmware on an RTOS (FreeRTOS used as the example). FreeRTOS mapping to use in
+E1–E3 and the skill: task entry = `xTaskCreate(fn, "Name", …)` (context name from code); ISR
+context = `…FromISR` calls / handlers; `xQueueSend` → `async`;
+`xTaskNotify`/`xSemaphoreGive`/`xEventGroupSetBits` → `signal`; `taskENTER_CRITICAL`/mutex →
+`critical` block; software-timer callbacks run in the timer service (daemon) task, not the
+starter's; mailbox anchors = `QueueHandle_t` globals. Middleware often wraps the RTOS in an OS
+abstraction layer — anchor the wrapper, name the primitive in `notes`. Typical flows: startup
+sequence, and application API calls posted to a mailbox → processed in a worker task →
+completion callback to the app. Startup already fits;
+the mailbox flow is expressible (`async` + `callback` steps) but hides the important part, the
+task/ISR boundary. All E items change the schema → update `core/src/schema.ts`, `schema.md`,
+fixtures and examples together; run one at a time, not alongside A2/C1. **Parked by the user —
+start by writing a real mailbox flow against the current schema to confirm the friction points.**
+
+### E1. Execution context on nodes
+
+- **Problem:** lifelines/groups are static structure (function, file, folder, module), but RTOS
+  flows are about which task or ISR runs the code.
+- **Approach:** optional `node.context` (free string, e.g. `"PN stack task"`, `"ISR: ICSS"`).
+  Sequence view: a "group by context" option so lifelines become tasks/ISRs; flowchart: show the
+  context as a badge or an alternative grouping. Skill: tell agents when to set it.
+
+### E2. Anchors to variables
+
+- **Problem:** the resolver only knows functions, function-like macros and types
+  (`SymbolKind` in `resolver/src/symbols.ts`), so a mailbox/queue handle must be an unanchored node.
+- **Approach:** add a `variable` kind for file-scope/global declarations (fingerprint the
+  declaration incl. initializer). Tests on fixture globals.
+
+### E3. More fragment types + a notation legend
+
+- Add `opt`, `break`, `critical` blocks (UML 2 operators; `critical` = IRQs off / mutex held).
+- Align with UML: `async` is currently dashed + open head (UML: solid + open head) — fix or
+  document the deviation. Add a "Notation" section to `schema.md` and a legend in the webview.
+- Consider a "later / wait" marker for steps separated by external events (e.g. controller reply).
+
+Out of scope for now: statecharts (AR/alarm state machines); single scenarios through them still
+fit as flows.
 
 ## Decisions already made (don't re-litigate)
 
@@ -143,3 +182,4 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
 ## Done
 
 - v0.1 rebuild — core, resolver, CLI, webview, extension, skill, Lua example, CI (`4310f43`).
+- D2. License: MIT (`LICENSE` at the root and in `packages/extension/` for vsce).
