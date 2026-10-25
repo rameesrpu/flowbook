@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @flowbook/core build && pnpm --filter @flowbook/resolver build && pnpm --filter @flowbook/cli build && pnpm --filter @flowbook/webview build && pnpm --filter flowbook build",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && pnpm --filter flowbook typecheck",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -1,0 +1,18 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Flowbook extension",
+      "type": "shell",
+      "command": "pnpm --filter @flowbook/core build && pnpm --filter @flowbook/resolver build && pnpm --filter flowbook build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$tsc", "$esbuild"]
+    },
+    {
+      "label": "Build Flowbook webview",
+      "type": "shell",
+      "command": "pnpm --filter @flowbook/webview build",
+      "problemMatcher": []
+    }
+  ]
+}

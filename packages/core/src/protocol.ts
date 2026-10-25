@@ -53,6 +53,7 @@ export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'openFlow'; flowId: string; focus?: string }
   | { type: 'openCode'; nodeId: string }
+  /** `line` is 1-based, like record and diagnostic lines. */
   | { type: 'openFlowFile'; line?: number }
   | { type: 'requestSnippet'; nodeId: string }
   | { type: 'requestDiff'; nodeId: string }

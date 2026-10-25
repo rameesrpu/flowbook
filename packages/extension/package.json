@@ -9,13 +9,116 @@
     "type": "git",
     "url": "https://github.com/rameesrpu/flowbook.git"
   },
+  "license": "UNLICENSED",
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "c",
+    "cpp",
+    "flow",
+    "diagram",
+    "documentation"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
   "main": "dist/extension.cjs",
+  "activationEvents": [
+    "workspaceContains:**/.flowbook",
+    "workspaceContains:**/.flowbook/config.jsonl",
+    "workspaceContains:**/.flowbook/flows/*.jsonl"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flowbook",
+          "title": "Flowbook",
+          "icon": "media/flowbook.svg"
+        }
+      ]
+    },
+    "views": {
+      "flowbook": [
+        {
+          "id": "flowbook.flows",
+          "name": "Flows",
+          "icon": "media/flowbook.svg",
+          "contextualTitle": "Flowbook"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "flowbook.flows",
+        "contents": "No Flowbook flows found. Flows live in `.flowbook/flows/<id>.jsonl` inside your repository; ask your agent to write one with the Flowbook skill.\n[Refresh](command:flowbook.refresh)",
+        "when": "!flowbook.hasFlows"
+      }
+    ],
+    "commands": [
+      {
+        "command": "flowbook.refresh",
+        "title": "Refresh",
+        "category": "Flowbook",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flowbook.check",
+        "title": "Check",
+        "category": "Flowbook",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "flowbook.openFlow",
+        "title": "Open Flow…",
+        "category": "Flowbook",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "flowbook.showUsages",
+        "title": "Show Flows Using This Symbol",
+        "category": "Flowbook"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "flowbook.refresh",
+          "when": "view == flowbook.flows",
+          "group": "navigation@2"
+        },
+        {
+          "command": "flowbook.check",
+          "when": "view == flowbook.flows",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "flowbook.showUsages",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Flowbook",
+      "properties": {
+        "flowbook.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show \"Flowbook: in N flows\" above C/C++ definitions that appear in flows."
+        }
+      }
+    }
+  },
   "scripts": {
     "build": "node build.mjs",
-    "package": "vsce package --no-dependencies"
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit -p .",
+    "package": "vsce package --no-dependencies --skip-license",
+    "test:e2e": "node build.mjs && node test/run.mjs"
   },
   "dependencies": {
     "@flowbook/core": "workspace:*",
