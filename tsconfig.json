@@ -1,4 +1,14 @@
 {
   "files": [],
-  "references": [{ "path": "packages/core" }, { "path": "packages/resolver" }]
+  "references": [
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/resolver"
+    },
+    {
+      "path": "packages/cli"
+    }
+  ]
 }

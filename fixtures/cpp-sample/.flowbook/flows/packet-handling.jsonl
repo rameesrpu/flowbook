@@ -1,0 +1,21 @@
+{"kind":"flow","id":"packet-handling","title":"Packet handling","summary":"What happens when a registered socket becomes readable: the loop dispatches to the `on_packet` callback, which parses the packet and stops the loop on malformed input.","entry":"run","tags":["data-path"]}
+{"kind":"node","id":"run","title":"Event loop","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::run"},"fp":"51bcd000d49c","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"dispatch","title":"Dispatch readable fd","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::dispatch"},"fp":"32b75c867cae","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"on-packet","title":"Packet callback","notes":"Registered in `server_run`; receives the loop as `ctx`.","anchor":{"file":"src/net/server.cpp","symbol":"on_packet"},"fp":"303e52dbd8a4","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"feed","title":"Parse packet","notes":"Header is 2 bytes type + 2 bytes size, big-endian.","anchor":{"file":"src/proto/parser.cpp","symbol":"proto::Parser::feed"},"fp":"65da5b441f31","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"check-len","title":"Length guard","anchor":{"file":"src/proto/parser.cpp","symbol":"CHECK_LEN"},"fp":"b11a65086428","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"read-be","title":"Read big-endian field","anchor":{"file":"src/proto/parser.hpp","symbol":"proto::read_be"},"fp":"2d129768c504","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"valid-type","title":"Validate type","anchor":{"file":"src/proto/parser.cpp","symbol":"valid_type"},"fp":"387456f34bc9","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"log","title":"Log warning","anchor":{"file":"src/util/log.c","symbol":"log_write"},"fp":"493e3d422ccf","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"stop","title":"Stop loop","anchor":{"file":"src/net/event_loop.hpp","symbol":"net::EventLoop::stop"},"fp":"4d7d7f4f09df","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"step","id":"s1","seq":1,"from":"run","to":"dispatch","label":"next registered fd"}
+{"kind":"step","id":"s2","seq":2,"from":"dispatch","to":"on-packet","label":"invoke registered callback","type":"callback"}
+{"kind":"step","id":"s3","seq":3,"from":"on-packet","to":"feed","label":"parse bytes"}
+{"kind":"step","id":"s4","seq":4,"from":"feed","to":"check-len","label":"need 4-byte header"}
+{"kind":"step","id":"s5","seq":5,"from":"feed","to":"read-be","label":"type and size fields"}
+{"kind":"step","id":"s6","seq":6,"from":"feed","to":"valid-type","label":"type < 16"}
+{"kind":"step","id":"s7","seq":7,"from":"feed","to":"on-packet","label":"ok / malformed","type":"return"}
+{"kind":"step","id":"s8","seq":8,"from":"on-packet","to":"log","label":"warn about bad packet","guard":"malformed"}
+{"kind":"step","id":"s9","seq":9,"from":"on-packet","to":"stop","label":"shut down loop","guard":"malformed"}
+{"kind":"block","id":"each-fd","type":"loop","label":"while running, for each fd","steps":["s1","s2","s3","s4","s5","s6","s7","s8","s9"]}
+{"kind":"block","id":"bad","type":"alt","label":"packet malformed","steps":["s8","s9"]}

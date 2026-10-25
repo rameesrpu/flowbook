@@ -1,0 +1,16 @@
+{"kind":"flow","id":"startup","title":"Server startup","summary":"How the process goes from `main` to a running event loop: logging is configured, a connection is accepted and registered with the loop together with a heartbeat timer.","entry":"main","tags":["lifecycle"]}
+{"kind":"node","id":"main","title":"main","notes":"Builds a `config` from argv. Any extra argument turns on verbose logging.","anchor":{"file":"src/main.c","symbol":"main"},"fp":"f3ad856daca0","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"log-init","title":"Configure logging","anchor":{"file":"src/util/log.c","symbol":"log_init"},"fp":"04b30f4b90e1","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"server-run","title":"Run server","notes":"`extern \"C\"` bridge from the C entry point into the C++ networking layer.","anchor":{"file":"src/net/server.cpp","symbol":"server_run"},"fp":"4baa789388be","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"accept","title":"Accept connection","anchor":{"file":"src/net/server.cpp","symbol":"accept_conn"},"fp":"a88f3fa2266e","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"validate-fd","title":"Validate descriptor","notes":"File-local `helper`; not the one in `util/log.c`.","anchor":{"file":"src/net/server.cpp","symbol":"helper"},"fp":"9e2deef04d2c","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"add-fd","title":"Register socket","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::add","sig":"(int, Callback, void*)"},"fp":"de6f2ab725dd","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"add-timer","title":"Register heartbeat timer","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::add","sig":"(Timer*)"},"fp":"4be14683f478","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"node","id":"run","title":"Event loop","notes":"Blocks until a callback calls `stop()`.","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::run"},"flow":"packet-handling","fp":"51bcd000d49c","verified":"38338a770981a28557d12236c2419b77ca800a73"}
+{"kind":"step","id":"s1","seq":1,"from":"main","to":"log-init","label":"set verbosity from argv"}
+{"kind":"step","id":"s2","seq":2,"from":"main","to":"server-run","label":"hand over config"}
+{"kind":"step","id":"s3","seq":3,"from":"server-run","to":"accept","label":"accept on configured port"}
+{"kind":"step","id":"s4","seq":4,"from":"accept","to":"validate-fd","label":"reject negative fd"}
+{"kind":"step","id":"s5","seq":5,"from":"server-run","to":"add-fd","label":"watch socket, on_packet as callback"}
+{"kind":"step","id":"s6","seq":6,"from":"server-run","to":"add-timer","label":"1 s heartbeat"}
+{"kind":"step","id":"s7","seq":7,"from":"server-run","to":"run","label":"block in loop until stopped"}

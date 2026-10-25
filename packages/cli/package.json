@@ -1,0 +1,19 @@
+{
+  "name": "@flowbook/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "flowbook": "dist/flowbook.js"
+  },
+  "scripts": {
+    "build": "tsc -b && node build.mjs"
+  },
+  "dependencies": {
+    "@flowbook/core": "workspace:*",
+    "@flowbook/resolver": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

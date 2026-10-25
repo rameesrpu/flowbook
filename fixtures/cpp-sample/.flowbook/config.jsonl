@@ -1,0 +1,3 @@
+{"kind":"config","version":1}
+{"kind":"group","name":"Networking","paths":["src/net/**"]}
+{"kind":"group","name":"Protocol","paths":["src/proto/**"]}

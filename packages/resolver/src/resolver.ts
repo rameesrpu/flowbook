@@ -68,6 +68,11 @@ export class Resolver {
   resolve(anchor: Anchor, text: string): Resolution {
     return match(anchor, this.listSymbols(anchor.file, text));
   }
+
+  /** Picks the definition an anchor refers to from already-listed symbols. */
+  match(anchor: Anchor, symbols: SymbolInfo[]): Resolution {
+    return match(anchor, symbols);
+  }
 }
 
 const lastSegment = (s: string) => s.slice(s.lastIndexOf(':') + 1);
