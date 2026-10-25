@@ -1,5 +1,5 @@
 import ELK, { type ElkExtendedEdge, type ElkNode } from 'elkjs/lib/elk.bundled.js';
-import type { Flow, Group, GroupTree, Projection, VisibleEdge } from '@flowbook/core';
+import type { Flow, Group, GroupTree, Projection, VisibleEdge } from '@flowbook/core/browser';
 import { textWidth, truncate } from '../measure';
 import { BLOCK_ICON } from '../model';
 

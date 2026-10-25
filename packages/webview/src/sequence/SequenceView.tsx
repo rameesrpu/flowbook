@@ -6,7 +6,7 @@ import {
   type FlowPayload,
   type GroupTree,
   type StepRecord,
-} from '@flowbook/core';
+} from '@flowbook/core/browser';
 import { ArrowDefs, markerId } from '../arrows';
 import { textWidth, truncate } from '../measure';
 import { rootColors, rootOf, sortedSteps, STATE_INFO } from '../model';

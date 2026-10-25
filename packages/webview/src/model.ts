@@ -5,7 +5,7 @@ import type {
   GroupTree,
   StepRecord,
   StepType,
-} from '@flowbook/core';
+} from '@flowbook/core/browser';
 
 export const BLOCK_ICON: Record<BlockRecord['type'], string> = { loop: '↻', alt: '◇', par: '∥' };
 

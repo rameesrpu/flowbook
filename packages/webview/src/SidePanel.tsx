@@ -5,7 +5,7 @@ import type {
   Snippet,
   StepRecord,
   WebviewMessage,
-} from '@flowbook/core';
+} from '@flowbook/core/browser';
 import type { ReactNode } from 'react';
 import type { Loadable } from './App';
 import { useTokens } from './highlight';

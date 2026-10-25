@@ -57,15 +57,6 @@ Kick-off prompt for a new conversation:
   level when participants exceed what fits, and keep the header sticky horizontally too.
 - **Accept:** Lua `run-script` (15 nodes) in sequence view is usable at 1440px width.
 
-### A5. Bundle size (3 MB, 766 kB gzip)
-
-- **Sources:** `elkjs/lib/elk.bundled.js` (~1.6 MB), shiki cpp grammar, zod pulled in through core.
-- **Approach:** stop importing zod in the webview. Split core's entry so the browser imports
-  only `grouping`, `project`, `protocol` types and the plain TS record types (e.g. a
-  `@flowbook/core/browser` export without `schema.ts` runtime). This also removes the CSP
-  console violation from zod's `new Function` probe. Measure before/after.
-- **Accept:** no `new Function` CSP violation in the webview console; bundle size reported.
-
 ### A6. High-contrast theme check
 
 - Screenshot with `body.vscode-high-contrast` / `vscode-high-contrast-light` variables and
@@ -177,3 +168,5 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
 - v0.1 rebuild — core, resolver, CLI, webview, extension, skill, Lua example, CI (`4310f43`).
 - D2. License: MIT (`LICENSE` at the root and in `packages/extension/` for vsce).
 - C1. "Did you mean" hint for wrong anchor file paths (same-basename search).
+- A5. Webview imports `@flowbook/core/browser` (no zod): no `new Function` CSP violation;
+  bundle 3,067 → 2,977 kB (766 → 740 kB gzip). The rest is elkjs (~1.6 MB) and shiki.

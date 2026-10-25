@@ -9,7 +9,7 @@ import {
   type Node,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { project, type FlowPayload, type GroupTree, type Projection } from '@flowbook/core';
+import { project, type FlowPayload, type GroupTree, type Projection } from '@flowbook/core/browser';
 import { ArrowDefs } from '../arrows';
 import { rootColors, rootOf } from '../model';
 import type { Selection } from '../selection';

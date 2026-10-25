@@ -9,7 +9,7 @@ import {
   type GroupTree,
   type HostMessage,
   type Snippet,
-} from '@flowbook/core';
+} from '@flowbook/core/browser';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Flowchart } from './flowchart/Flowchart';
 import type { Host } from './host';

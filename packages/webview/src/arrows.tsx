@@ -1,4 +1,4 @@
-import type { StepType } from '@flowbook/core';
+import type { StepType } from '@flowbook/core/browser';
 
 export type EdgeStyle = StepType | 'aggregated';
 

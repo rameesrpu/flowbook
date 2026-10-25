@@ -1,4 +1,4 @@
-import type { HostMessage, WebviewMessage } from '@flowbook/core';
+import type { HostMessage, WebviewMessage } from '@flowbook/core/browser';
 
 /** Everything the webview needs from its container; VS Code in production, a mock in dev. */
 export interface Host {

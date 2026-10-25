@@ -6,7 +6,7 @@ import {
   type EdgeProps,
   type NodeProps,
 } from '@xyflow/react';
-import type { AnchorStateName, Group } from '@flowbook/core';
+import type { AnchorStateName, Group } from '@flowbook/core/browser';
 import { markerId, type EdgeStyle } from '../arrows';
 import { truncate } from '../measure';
 import { STATE_INFO } from '../model';
