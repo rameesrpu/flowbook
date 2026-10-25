@@ -1,7 +1,6 @@
 import {
   Background,
   Controls,
-  MarkerType,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -9,13 +8,23 @@ import {
   type Edge,
   type Node,
 } from '@xyflow/react';
-import { useEffect, useMemo, useState } from 'react';
-import { project, type FlowPayload, type GroupTree } from '@flowbook/core';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { project, type FlowPayload, type GroupTree, type Projection } from '@flowbook/core';
+import { ArrowDefs } from '../arrows';
+import { rootColors, rootOf } from '../model';
 import type { Selection } from '../selection';
-import { FlowEdgeView, FlowNodeView, GroupView, type EdgeData, type FlowNodeData, type GroupData } from './components';
+import {
+  FlowEdgeView,
+  FlowNodeView,
+  GroupView,
+  type EdgeData,
+  type FlowNodeData,
+  type GroupData,
+} from './components';
 import { layoutFlow, type Layout } from './layout';
 
-const nodeTypes = { flow: FlowNodeView, group: GroupView };
+// Custom names: React Flow ships default styles for its built-in 'group' type.
+const nodeTypes = { fbNode: FlowNodeView, fbGroup: GroupView };
 const edgeTypes = { flow: FlowEdgeView };
 
 interface Props {
@@ -39,14 +48,19 @@ export function Flowchart(props: Props) {
 function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDrill }: Props) {
   const { flow } = payload;
   const projection = useMemo(() => project(flow, tree, collapsed), [flow, tree, collapsed]);
-  const [layout, setLayout] = useState<Layout>();
+  const [laidOut, setLaidOut] = useState<{ layout: Layout; projection: Projection }>();
+  // A layout computed for an earlier flow or grouping must not be combined with the current one.
+  const layout = laidOut?.projection === projection ? laidOut.layout : undefined;
   const [error, setError] = useState<string>();
   const { fitView } = useReactFlow();
+  const wrapper = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    layoutFlow(flow, tree, projection, collapsed).then(
-      (l) => !cancelled && (setLayout(l), setError(undefined)),
+    const el = wrapper.current;
+    const viewport = el ? { width: el.clientWidth, height: el.clientHeight } : undefined;
+    layoutFlow(flow, tree, projection, collapsed, viewport).then(
+      (l) => !cancelled && (setLaidOut({ layout: l, projection }), setError(undefined)),
       (e: unknown) => !cancelled && setError(String(e)),
     );
     return () => {
@@ -55,7 +69,8 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
   }, [flow, tree, projection, collapsed]);
 
   useEffect(() => {
-    if (layout) requestAnimationFrame(() => fitView({ padding: 0.12, duration: 200, maxZoom: 1.2 }));
+    if (layout)
+      requestAnimationFrame(() => fitView({ padding: 0.12, duration: 200, maxZoom: 1.2 }));
   }, [layout, fitView]);
 
   // Which visible items and edges relate to the current selection.
@@ -93,6 +108,9 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
     return { edges, items };
   }, [selection, projection, flow.blocks]);
 
+  const colors = useMemo(() => rootColors(tree), [tree]);
+  const colorOf = useCallback((id: string) => colors.get(rootOf(tree, id) ?? ''), [colors, tree]);
+
   const { nodes, edges } = useMemo(() => {
     if (!layout) return { nodes: [], edges: [] };
     const nodes: Node[] = layout.items.map((item) => {
@@ -112,12 +130,14 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
           state: payload.anchors[n.id]?.state,
           entry: flow.meta.entry === n.id,
           drill: n.flow,
+          drillTitle: n.flow ? payload.flowTitles[n.flow] : undefined,
+          color: colorOf(n.id),
           dimmed: !!focus && !focus.items.has(n.id),
           onDrill,
         };
         return {
           ...base,
-          type: 'flow',
+          type: 'fbNode',
           data,
           selected: selection?.kind === 'node' && selection.id === n.id,
           zIndex: 10,
@@ -128,12 +148,13 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
         collapsed: item.kind === 'collapsed',
         nodeCount: item.kind === 'collapsed' ? item.nodeCount : undefined,
         hiddenSteps: item.kind === 'collapsed' ? item.hiddenSteps : undefined,
+        color: colorOf(item.id),
         dimmed: item.kind === 'collapsed' && !!focus && !focus.items.has(item.id),
         onToggle,
       };
       return {
         ...base,
-        type: 'group',
+        type: 'fbGroup',
         data,
         selectable: item.kind === 'collapsed',
         zIndex: item.kind === 'collapsed' ? 10 : item.group.depth,
@@ -155,35 +176,61 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
         target: laid.edge.to,
         type: 'flow',
         data,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
         zIndex: 5,
       };
     });
     return { nodes, edges };
-  }, [layout, flow, payload.anchors, focus, selection, onToggle, onDrill, onSelect, projection.edges]);
+  }, [
+    layout,
+    flow,
+    payload.anchors,
+    payload.flowTitles,
+    focus,
+    selection,
+    onToggle,
+    onDrill,
+    onSelect,
+    projection.edges,
+    colorOf,
+  ]);
 
   if (error) return <div className="fb-error">Layout failed: {error}</div>;
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      minZoom={0.1}
-      maxZoom={2.5}
-      onNodeClick={(_, node) => node.type === 'flow' && onSelect({ kind: 'node', id: node.id })}
-      onEdgeClick={(_, edge) => {
-        const e = projection.edges.find((x) => x.id === edge.id);
-        if (e) onSelect({ kind: 'edge', id: e.id, steps: e.steps });
-      }}
-      onPaneClick={() => onSelect(undefined)}
-      proOptions={{ hideAttribution: false }}
-    >
-      <Background gap={24} size={1} />
-      <Controls showInteractive={false} />
-      <MiniMap pannable zoomable className="fb-minimap" />
-    </ReactFlow>
+    <div ref={wrapper} className="fb-flowchart">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        minZoom={0.1}
+        maxZoom={2.5}
+        onNodeClick={(_, node) =>
+          onSelect(node.type === 'fbNode' ? { kind: 'node', id: node.id } : undefined)
+        }
+        onEdgeClick={(_, edge) => {
+          const e = projection.edges.find((x) => x.id === edge.id);
+          if (e) onSelect({ kind: 'edge', id: e.id, steps: e.steps });
+        }}
+        onPaneClick={() => onSelect(undefined)}
+        proOptions={{ hideAttribution: false }}
+      >
+        <ArrowDefs />
+        <Background gap={24} size={1} />
+        <Controls showInteractive={false} />
+        {(layout?.items.length ?? 0) > 14 && (
+          <MiniMap
+            pannable
+            zoomable
+            className="fb-minimap"
+            nodeColor={(n) =>
+              n.type === 'fbGroup' && !n.data.collapsed ? 'transparent' : 'var(--fb-minimap-node)'
+            }
+            nodeStrokeColor="var(--fb-node-border)"
+          />
+        )}
+      </ReactFlow>
+    </div>
   );
 }

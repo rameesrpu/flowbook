@@ -11,11 +11,16 @@ function resolveFamily(family: string): string {
   return value || m[2]!;
 }
 
-export function textWidth(text: string, size: number, opts: { bold?: boolean; mono?: boolean } = {}) {
+export function textWidth(
+  text: string,
+  size: number,
+  opts: { bold?: boolean; mono?: boolean } = {},
+) {
   if (ctx === undefined) ctx = document.createElement('canvas').getContext('2d');
   if (!ctx) return text.length * size * 0.6;
   ctx.font = `${opts.bold ? '600 ' : ''}${size}px ${resolveFamily(opts.mono ? MONO_FAMILY : FONT_FAMILY)}`;
   return ctx.measureText(text).width;
 }
 
-export const truncate = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + '…' : s);
+export const truncate = (s: string, max: number) =>
+  s.length > max ? s.slice(0, max - 1) + '…' : s;

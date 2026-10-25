@@ -9,12 +9,15 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     cssCodeSplit: false,
-    rollupOptions: {
+    // One self-contained script: the webview CSP only allows the files the extension lists.
+    chunkSizeWarningLimit: 4000,
+    rolldownOptions: {
       input: 'src/main.tsx',
       output: {
         entryFileNames: 'webview.js',
-        assetFileNames: (info) => (info.names?.[0]?.endsWith('.css') ? 'webview.css' : '[name][extname]'),
-        inlineDynamicImports: true,
+        assetFileNames: (info) =>
+          info.names?.[0]?.endsWith('.css') ? 'webview.css' : '[name][extname]',
+        codeSplitting: false,
       },
     },
   },

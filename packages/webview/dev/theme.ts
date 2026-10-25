@@ -1,0 +1,91 @@
+// A subset of the variables VS Code injects into webviews (Light Modern / Dark Modern).
+
+const COMMON = {
+  '--vscode-font-family': 'system-ui, -apple-system, "Segoe UI", Ubuntu, sans-serif',
+  '--vscode-font-size': '13px',
+  '--vscode-editor-font-family': '"Droid Sans Mono", "DejaVu Sans Mono", monospace',
+  '--vscode-editor-font-size': '12px',
+};
+
+const LIGHT = {
+  '--vscode-editor-background': '#ffffff',
+  '--vscode-editor-foreground': '#3b3b3b',
+  '--vscode-foreground': '#3b3b3b',
+  '--vscode-descriptionForeground': '#717171',
+  '--vscode-panel-border': '#e5e5e5',
+  '--vscode-widget-border': '#e5e5e5',
+  '--vscode-focusBorder': '#005fb8',
+  '--vscode-textLink-foreground': '#005fb8',
+  '--vscode-sideBar-background': '#f8f8f8',
+  '--vscode-editorGroupHeader-tabsBackground': '#f8f8f8',
+  '--vscode-editorWidget-background': '#f8f8f8',
+  '--vscode-editorWidget-border': '#c8c8c8',
+  '--vscode-list-hoverBackground': '#f2f2f2',
+  '--vscode-list-activeSelectionBackground': '#e8e8e8',
+  '--vscode-list-activeSelectionForeground': '#000000',
+  '--vscode-button-background': '#005fb8',
+  '--vscode-button-foreground': '#ffffff',
+  '--vscode-button-hoverBackground': '#0258a8',
+  '--vscode-button-secondaryBackground': '#e5e5e5',
+  '--vscode-button-secondaryForeground': '#3b3b3b',
+  '--vscode-button-secondaryHoverBackground': '#cccccc',
+  '--vscode-badge-background': '#cccccc',
+  '--vscode-badge-foreground': '#3b3b3b',
+  '--vscode-textCodeBlock-background': '#f0f0f0',
+  '--vscode-editorLineNumber-foreground': '#6e7681',
+  '--vscode-errorForeground': '#f85149',
+  '--vscode-editorWarning-foreground': '#bf8803',
+  '--vscode-charts-blue': '#1a85ff',
+  '--vscode-charts-green': '#388a34',
+  '--vscode-charts-orange': '#d18616',
+  '--vscode-charts-purple': '#652d90',
+  '--vscode-charts-yellow': '#bf8803',
+  '--vscode-charts-red': '#e51400',
+  '--vscode-notifications-background': '#ffffff',
+  '--vscode-notifications-foreground': '#3b3b3b',
+};
+
+const DARK = {
+  '--vscode-editor-background': '#1f1f1f',
+  '--vscode-editor-foreground': '#cccccc',
+  '--vscode-foreground': '#cccccc',
+  '--vscode-descriptionForeground': '#9d9d9d',
+  '--vscode-panel-border': '#2b2b2b',
+  '--vscode-widget-border': '#313131',
+  '--vscode-focusBorder': '#0078d4',
+  '--vscode-textLink-foreground': '#4daafc',
+  '--vscode-sideBar-background': '#181818',
+  '--vscode-editorGroupHeader-tabsBackground': '#181818',
+  '--vscode-editorWidget-background': '#202020',
+  '--vscode-editorWidget-border': '#454545',
+  '--vscode-list-hoverBackground': '#2a2d2e',
+  '--vscode-list-activeSelectionBackground': '#04395e',
+  '--vscode-list-activeSelectionForeground': '#ffffff',
+  '--vscode-button-background': '#0078d4',
+  '--vscode-button-foreground': '#ffffff',
+  '--vscode-button-hoverBackground': '#026ec1',
+  '--vscode-button-secondaryBackground': '#313131',
+  '--vscode-button-secondaryForeground': '#cccccc',
+  '--vscode-button-secondaryHoverBackground': '#3c3c3c',
+  '--vscode-badge-background': '#616161',
+  '--vscode-badge-foreground': '#f8f8f8',
+  '--vscode-textCodeBlock-background': '#2b2b2b',
+  '--vscode-editorLineNumber-foreground': '#6e7681',
+  '--vscode-errorForeground': '#f85149',
+  '--vscode-editorWarning-foreground': '#cca700',
+  '--vscode-charts-blue': '#3794ff',
+  '--vscode-charts-green': '#89d185',
+  '--vscode-charts-orange': '#d18616',
+  '--vscode-charts-purple': '#b180d7',
+  '--vscode-charts-yellow': '#cca700',
+  '--vscode-charts-red': '#f14c4c',
+  '--vscode-notifications-background': '#1f1f1f',
+  '--vscode-notifications-foreground': '#cccccc',
+};
+
+export function applyTheme(kind: 'light' | 'dark') {
+  document.body.classList.remove('vscode-light', 'vscode-dark');
+  document.body.classList.add(`vscode-${kind}`);
+  const vars = { ...COMMON, ...(kind === 'dark' ? DARK : LIGHT) };
+  for (const [k, v] of Object.entries(vars)) document.documentElement.style.setProperty(k, v);
+}
