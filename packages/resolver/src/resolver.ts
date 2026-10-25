@@ -85,8 +85,33 @@ export function match(anchor: Anchor, symbols: SymbolInfo[]): Resolution {
   if (candidates.length === 1) return { status: 'ok', symbol: candidates[0]! };
   if (candidates.length > 1) return { status: 'ambiguous', candidates };
   const leaf = lastSegment(anchor.symbol);
-  const suggestions = named.length
-    ? named
-    : symbols.filter((s) => lastSegment(s.symbol) === leaf || s.symbol.endsWith(anchor.symbol));
-  return { status: 'missing', suggestions };
+  if (named.length) return { status: 'missing', suggestions: named };
+  const exact = symbols.filter(
+    (s) => lastSegment(s.symbol) === leaf || s.symbol.endsWith(anchor.symbol),
+  );
+  if (exact.length) return { status: 'missing', suggestions: exact };
+  // Likely typos: closest names within a small edit distance.
+  const limit = Math.max(1, Math.floor(leaf.length / 4));
+  const close = symbols
+    .map((s) => ({ s, d: editDistance(lastSegment(s.symbol), leaf) }))
+    .filter((x) => x.d <= limit)
+    .sort((a, b) => a.d - b.d)
+    .map((x) => x.s);
+  return { status: 'missing', suggestions: close };
+}
+
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        prev[j]! + 1,
+        cur[j - 1]! + 1,
+        prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length]!;
 }

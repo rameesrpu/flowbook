@@ -1,10 +1,10 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve as resolvePath } from 'node:path';
 import type { Anchor } from '@flowbook/core';
 import {
   anchorDiagnostics,
   checkAnchors,
-  headCommit,
+  headCommitFor,
   readWorkspace,
   sourceReader,
   type Resolver,
@@ -52,7 +52,10 @@ export function resolve(
   symbol: string | undefined,
   sig: string | undefined,
 ): number {
-  const file = relative(ctx.root, resolvePath(fileArg)).split('\\').join('/');
+  // Accept paths relative to the current directory or to the root.
+  const fromCwd = resolvePath(fileArg);
+  const absolute = existsSync(fromCwd) ? fromCwd : resolvePath(ctx.root, fileArg);
+  const file = relative(ctx.root, absolute).split('\\').join('/');
   let text: string;
   try {
     text = readFileSync(join(ctx.root, file), 'utf8');
@@ -100,17 +103,24 @@ export function stamp(ctx: Context, flowIds: string[], all = false): number {
     return 1;
   }
   const wanted = new Set(all ? known : flowIds);
-  const sha = headCommit(ctx.root);
+  const commits = new Map<string, string | undefined>();
+  const commitFor = (file: string) => {
+    if (!commits.has(file)) commits.set(file, headCommitFor(ctx.root, file));
+    return commits.get(file);
+  };
+  let outsideGit = false;
   const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver).filter((s) =>
     wanted.has(s.flow.meta.id),
   );
   let failed = 0;
   for (const flow of ws.flows.filter((f) => wanted.has(f.meta.id))) {
     const mine = statuses.filter((s) => s.flow === flow);
-    const updates = new Map<number, string>();
+    const updates = new Map<number, { fp: string; sha?: string }>();
     for (const s of mine) {
       if (s.state === 'fresh' || s.state === 'stale' || s.state === 'unstamped') {
-        updates.set(s.node.line, s.symbol.fp);
+        const sha = commitFor(s.node.anchor!.file);
+        if (!sha) outsideGit = true;
+        updates.set(s.node.line, { fp: s.symbol.fp, sha });
       }
     }
     for (const d of anchorDiagnostics(mine.filter((s) => !updates.has(s.node.line)))) {
@@ -120,7 +130,7 @@ export function stamp(ctx: Context, flowIds: string[], all = false): number {
     const path = join(ctx.root, flow.file);
     const lines = readFileSync(path, 'utf8').split('\n');
     let changed = 0;
-    for (const [lineNo, fp] of updates) {
+    for (const [lineNo, { fp, sha }] of updates) {
       const record = JSON.parse(lines[lineNo - 1]!) as Record<string, unknown>;
       if (record.fp === fp && (sha === undefined || record.verified === sha)) continue;
       record.fp = fp;
@@ -132,7 +142,11 @@ export function stamp(ctx: Context, flowIds: string[], all = false): number {
     if (changed) writeFileSync(path, lines.join('\n'));
     ctx.io.out(`${flow.meta.id}: stamped ${updates.size} nodes (${changed} updated)`);
   }
-  if (!sha) ctx.io.err('warning: not a git repository; "verified" commits were not recorded');
+  if (outsideGit) {
+    ctx.io.err(
+      'warning: some sources are not in a git repository; their "verified" commits were not recorded',
+    );
+  }
   return failed > 0 ? 1 : 0;
 }
 

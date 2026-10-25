@@ -19,6 +19,8 @@ export interface SymbolInfo {
   nameColumn: number;
   /** Short hash of the definition with comments and whitespace removed. */
   fp: string;
+  /** Number of preprocessor alternatives merged into this entry, when more than one. */
+  variants?: number;
 }
 
 const SCOPES = new Set(['class_specifier', 'struct_specifier', 'union_specifier']);
@@ -216,5 +218,32 @@ export function collectSymbols(tree: Tree): SymbolInfo[] {
     for (const c of node.namedChildren) if (c) visit(c);
   };
   visit(tree.rootNode);
-  return out;
+  return mergeVariants(out);
+}
+
+/**
+ * Definitions with the same name and signature in one file are alternatives selected by the
+ * preprocessor (`#if _WIN32 … #else …`). They are reported once, at the first definition, with a
+ * fingerprint covering every variant so a change in any branch makes the anchor stale.
+ */
+function mergeVariants(symbols: SymbolInfo[]): SymbolInfo[] {
+  const byKey = new Map<string, SymbolInfo[]>();
+  for (const s of symbols) {
+    const key = `${s.kind}\u0000${s.symbol}\u0000${s.sig}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), s]);
+  }
+  return [...byKey.values()].map((variants) => {
+    const first = variants[0]!;
+    if (variants.length === 1) return first;
+    const fp = createHash('sha1')
+      .update(variants.map((v) => v.fp).join(','))
+      .digest('hex')
+      .slice(0, 12);
+    return {
+      ...first,
+      fp,
+      endLine: Math.max(...variants.map((v) => v.endLine)),
+      variants: variants.length,
+    };
+  });
 }

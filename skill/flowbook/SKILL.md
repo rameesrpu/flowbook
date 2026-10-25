@@ -19,21 +19,23 @@ writing your first flow in a session.
 
 ## The CLI is your feedback loop
 
-Run it from anywhere inside the repo. If `flowbook` is not on PATH, ask the user where the
+Run it from the repository root (or anywhere below a directory containing `.flowbook/`); all
+anchor paths are relative to the directory that contains `.flowbook/`. If `flowbook` is not on PATH, ask the user where the
 Flowbook CLI is installed (e.g. `node /path/to/flowbook/packages/cli/dist/flowbook.js`).
 
-| Command | Use it to |
-| --- | --- |
-| `flowbook resolve <file>` | list every definition in a file as a ready-to-paste `anchor` |
-| `flowbook resolve <file> <symbol>` | check one anchor; suggests qualified names and overload `sig`s |
-| `flowbook check` | validate schema, references and anchors (exit 1 on errors) |
-| `flowbook stamp <flow-id>` | record each node's code fingerprint + commit after you verified it |
-| `flowbook stale` | list nodes whose code changed since they were stamped |
+| Command                            | Use it to                                                          |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `flowbook resolve <file>`          | list every definition in a file as a ready-to-paste `anchor`       |
+| `flowbook resolve <file> <symbol>` | check one anchor; suggests qualified names and overload `sig`s     |
+| `flowbook check`                   | validate schema, references and anchors (exit 1 on errors)         |
+| `flowbook stamp <flow-id>`         | record each node's code fingerprint + commit after you verified it |
+| `flowbook stale`                   | list nodes whose code changed since they were stamped              |
 
 Never write `fp` or `verified` by hand — `stamp` owns them.
 
 ## Writing a new flow
 
+0. **First flow in a repo?** Create `.flowbook/flows/` at the repository root.
 1. **Pick one scenario** with a clear trigger and end: "Server startup", "Packet handling",
    "Config reload". Not "the networking module". Choose a kebab-case id; the file is
    `.flowbook/flows/<id>.jsonl`.
@@ -41,7 +43,7 @@ Never write `fp` or `verified` by hand — `stamp` owns them.
    callbacks, function pointers, virtual dispatch and thread hand-offs.
 3. **Get exact anchors** with `flowbook resolve <file>` for each file you touch. Copy the anchor
    JSON as printed: it includes `sig` only when the name is overloaded. Anchor to the
-   *definition* (the `.cpp` for out-of-line methods, the header for inline ones/templates).
+   _definition_ (the `.cpp` for out-of-line methods, the header for inline ones/templates).
 4. **Write the file** in this order: one `flow` record, then `node`s in scenario order, then
    `step`s by `seq`, then `block`s. One JSON object per line, no trailing commas, no comments.
 5. **Validate**: `flowbook check`. Fix every error; warnings about unstamped nodes are expected.
@@ -69,6 +71,20 @@ Stamping says "I verified this flow matches the code" — only stamp what you ac
 - **Branches**: put alternatives in an `alt` block with a `guard` on each step; alternatives in
   the same `alt` may share a `seq`. Repetition → `loop` block; concurrency → `par` block. Blocks
   may nest but must not partially overlap.
+- **Multi-step branches**: every step of a branch goes in the `alt` block and carries that
+  branch's `guard` (e.g. three steps with `"guard":"C function"`, two with `"guard":"Lua
+function"`). For an optional branch, use an `alt` block with a single guarded branch. A
+  `guard` outside any block is fine for a one-off conditional step.
+- **Self-steps** (`from` = `to`) express recursion, retries or re-entry (`goto` back to the top).
+- **What to anchor**: anchor definitions with bodies — functions, methods, function-like
+  macros, classes/structs. When a public macro just forwards to a function (e.g.
+  `luaL_loadfile` → `luaL_loadfilex`), anchor the function that holds the logic and mention the
+  macro in the title or notes. Code _inside_ a function (a `switch` case, a VM opcode handler,
+  a lambda) is anchored to the enclosing function; name the case in the title and notes, e.g.
+  title `"OP_CALL handler"` on an anchor to `luaV_execute`. Enum constants, variables and
+  declarations without bodies cannot be anchored.
+- **Preprocessor variants**: a function defined in several `#if` branches is one symbol; its
+  fingerprint covers all branches.
 - **External actors** (kernel, database, network peer, user) are nodes without `anchor`.
 - **Reuse nodes**: the same function appears once per flow; across flows, use the same anchor so
   the extension can link them ("also in other flows").

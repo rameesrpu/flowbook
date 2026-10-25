@@ -116,4 +116,24 @@ describe('resolve', () => {
     );
     expect(a.status === 'ok' && b.status === 'ok' && a.symbol.fp !== b.symbol.fp).toBe(true);
   });
+
+  it('suggests close names for typos', () => {
+    const r = resolver.resolve(
+      { file: 'src/net/event_loop.cpp', symbol: 'net::EventLoop::dispach' },
+      read('src/net/event_loop.cpp'),
+    );
+    expect(r.status === 'missing' && r.suggestions.map((s) => s.symbol)).toEqual([
+      'net::EventLoop::dispatch',
+    ]);
+  });
+
+  it('merges preprocessor alternatives into one symbol covering every branch', () => {
+    const src = (b: string) =>
+      `#if defined(_WIN32)\nint tty(void) { return 1; }\n#else\nint tty(void) { return ${b}; }\n#endif\n`;
+    const [a] = resolver.listSymbols('x.c', src('0'));
+    const [b] = resolver.listSymbols('x.c', src('2'));
+    expect(resolver.listSymbols('x.c', src('0'))).toHaveLength(1);
+    expect(a).toMatchObject({ symbol: 'tty', variants: 2, startLine: 1, endLine: 3 });
+    expect(a!.fp).not.toBe(b!.fp);
+  });
 });

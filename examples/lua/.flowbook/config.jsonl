@@ -1,0 +1,11 @@
+{"kind":"config","version":1}
+{"kind":"group","name":"Standalone interpreter","paths":["src/lua.c"]}
+{"kind":"group","name":"Public C API","paths":["src/lapi.c","src/lapi.h","src/lua.h","src/luaconf.h"]}
+{"kind":"group","name":"Auxiliary library","paths":["src/lauxlib.c","src/lauxlib.h"]}
+{"kind":"group","name":"Standard libraries","paths":["src/lbaselib.c","src/lcorolib.c","src/ldblib.c","src/liolib.c","src/lmathlib.c","src/loadlib.c","src/loslib.c","src/lstrlib.c","src/ltablib.c","src/lutf8lib.c","src/linit.c","src/lualib.h"]}
+{"kind":"group","name":"Parser & lexer","paths":["src/lparser.*","src/llex.*","src/lzio.*","src/lctype.*"]}
+{"kind":"group","name":"Code generator","paths":["src/lcode.*","src/lopcodes.*","src/lopnames.h"]}
+{"kind":"group","name":"Call & stack (ldo)","paths":["src/ldo.*","src/lstate.*","src/lfunc.*"]}
+{"kind":"group","name":"Virtual machine","paths":["src/lvm.*","src/ljumptab.h","src/ltm.*","src/ldebug.*"]}
+{"kind":"group","name":"Garbage collector","paths":["src/lgc.*","src/lmem.*"]}
+{"kind":"group","name":"Core objects","paths":["src/lobject.*","src/lstring.*","src/ltable.*","src/ldump.c","src/lundump.*"]}

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { basename, dirname, join } from 'node:path';
 
 function git(root: string, args: string[]): string | undefined {
   try {
@@ -18,8 +19,17 @@ export function headCommit(root: string): string | undefined {
   return git(root, ['rev-parse', 'HEAD'])?.trim();
 }
 
-/** Contents of a repo-relative file at a commit, or undefined if unavailable. */
+/**
+ * HEAD of the git repository containing a root-relative file. This is the repository that
+ * versions the code, which differs from the Flowbook root's when sources are a nested checkout.
+ */
+export function headCommitFor(root: string, path: string): string | undefined {
+  return headCommit(dirname(join(root, path)));
+}
+
+/** Contents of a root-relative file at a commit of the repository containing it. */
 export function fileAtCommit(root: string, sha: string, path: string): string | undefined {
-  // `./` makes the path relative to `root` even when it is not the top of the git repository.
-  return git(root, ['show', `${sha}:./${path}`]);
+  const full = join(root, path);
+  // `./` resolves against the working directory, so this works below the repository top level.
+  return git(dirname(full), ['show', `${sha}:./${basename(full)}`]);
 }

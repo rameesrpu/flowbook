@@ -4,12 +4,7 @@ import type { GroupRecord } from './schema.js';
 /** Messages between the extension host and the flow webview. Types only; no runtime code. */
 
 export type AnchorStateName =
-  | 'fresh'
-  | 'stale'
-  | 'unstamped'
-  | 'missing-file'
-  | 'missing'
-  | 'ambiguous';
+  'fresh' | 'stale' | 'unstamped' | 'missing-file' | 'missing' | 'ambiguous';
 
 export interface AnchorInfo {
   state: AnchorStateName;
@@ -20,7 +15,7 @@ export interface AnchorInfo {
   sig?: string;
 }
 
-export interface Usage {
+export interface UsageLink {
   flow: string;
   flowTitle: string;
   node: string;
@@ -33,7 +28,7 @@ export interface FlowPayload {
   /** Per node id. Unanchored nodes are absent. */
   anchors: Record<string, AnchorInfo>;
   /** Per node id: the same symbol in other flows. */
-  usages: Record<string, Usage[]>;
+  usages: Record<string, UsageLink[]>;
   /** Titles of every flow in the workspace, for drill-down links and breadcrumbs. */
   flowTitles: Record<string, string>;
   diagnostics: Diagnostic[];

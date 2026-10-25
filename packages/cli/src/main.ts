@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { findRoot, Resolver } from '@flowbook/resolver';
@@ -37,7 +37,14 @@ async function main(argv: string[]): Promise<number> {
     consoleIo.out(HELP);
     return command || values.help ? 0 : 1;
   }
-  const root = values.root ?? findRoot(process.cwd());
+  // `resolve` is used before any flow exists, so it falls back to the current directory.
+  // It looks next to the file too, then treats the current directory as the repo root.
+  const root =
+    values.root ??
+    findRoot(process.cwd()) ??
+    (command === 'resolve' && args[0]
+      ? (findRoot(dirname(resolvePath(args[0]))) ?? process.cwd())
+      : undefined);
   if (!root) {
     consoleIo.err(
       'error: no .flowbook/ directory found here or in any parent; create .flowbook/flows/',
