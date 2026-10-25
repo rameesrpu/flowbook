@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm exec prettier --check .
+      - run: pnpm test
+      - name: Fixture flows are valid and fresh
+        run: pnpm flowbook check --strict --root fixtures/cpp-sample
+      - run: pnpm --filter flowbook package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flowbook-vsix
+          path: packages/extension/*.vsix
