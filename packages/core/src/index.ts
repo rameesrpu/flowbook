@@ -6,3 +6,4 @@ export * from './grouping.js';
 export * from './project.js';
 export * from './workspace.js';
 export { jsonSchemas } from './json-schema.js';
+export type * from './protocol.js';
