@@ -6,3 +6,5 @@
 !dist/*.cjs
 !dist/*.wasm
 !dist/webview/**
+!dist/cli/**
+!dist/skill/**

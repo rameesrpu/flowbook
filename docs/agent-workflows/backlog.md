@@ -52,14 +52,12 @@ Kick-off prompt for a new conversation:
 
 ## Track B — Extension (`packages/extension`)
 
-### B1. Ship the CLI with the extension
+### B1b. Document the bundled CLI and skill commands
 
-- **Problem:** agents in other repos have no `flowbook` command (the skill tells them to ask).
-- **Approach:** bundle `packages/cli/dist/flowbook.js` + wasm into the vsix (`dist/cli/`).
-  Add command "Flowbook: Install CLI" that writes a small shim to `~/.local/bin/flowbook`
-  (Windows: `.cmd`) pointing at the extension's copy, and a command that copies the agent skill
-  into the open repo (`.claude/skills/flowbook/`). Update SKILL.md's CLI section to match.
-- **Decision for the user first:** vsix-bundled CLI vs. publishing `@flowbook/cli` to npm (can do both).
+- B1 shipped the code; the docs still describe the manual setup. Update `skill/flowbook/SKILL.md`
+  ("The CLI is your feedback loop": if `flowbook` is missing, ask the user to run **Flowbook:
+  Install CLI** in VS Code) and README ("Put the CLI on your PATH" / "Set up the agent skill":
+  lead with the two commands, keep the from-source shim as the alternative).
 
 ### B2. Smoke-test the remaining webview messages
 
@@ -91,7 +89,9 @@ Kick-off prompt for a new conversation:
 
 ### D1. README
 
-- Replace the stub with: what Flowbook is, a screenshot of each view (from the dev harness),
+- Text is written (`20b4563`). **Still missing:** a screenshot of each view (Marketplace needs
+  `https` image URLs, e.g. raw GitHub links), and the B1b install changes.
+- Original brief: what Flowbook is, a screenshot of each view (from the dev harness),
   install (vsix), quick start for agents (skill + CLI), file format summary linking
   `skill/flowbook/references/schema.md`, development commands.
 
@@ -162,3 +162,8 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
   (until the user picks one); oversized graphs open at 0.85 from their start instead of shrinking;
   single-child group chains share one box (`module / src / file.c`); slimmer file boxes. Dev
   harness: `root=lua`.
+- B1. CLI and skill ship in the vsix (`dist/cli/`, `dist/skill/`). Commands **Flowbook: Install
+  CLI** (copies the CLI to global storage, writes `~/.local/bin/flowbook` or `flowbook.cmd`; uses
+  `node` if present, else VS Code's runtime via `ELECTRON_RUN_AS_NODE`; refreshed on activation)
+  and **Flowbook: Add Agent Skill to Repository** (`.claude/skills/flowbook/`). Decision: vsix
+  only, no npm package. Docs follow in B1b.

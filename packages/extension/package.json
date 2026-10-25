@@ -53,7 +53,7 @@
     "viewsWelcome": [
       {
         "view": "flowbook.flows",
-        "contents": "No Flowbook flows found. Flows live in `.flowbook/flows/<id>.jsonl` inside your repository; ask your agent to write one with the Flowbook skill.\n[Refresh](command:flowbook.refresh)",
+        "contents": "No Flowbook flows found. Flows live in `.flowbook/flows/<id>.jsonl` inside your repository; ask your agent to write one with the Flowbook skill.\n[Add Agent Skill to Repository](command:flowbook.installSkill)\n[Install CLI](command:flowbook.installCli)\n[Refresh](command:flowbook.refresh)",
         "when": "!flowbook.hasFlows"
       }
     ],
@@ -72,9 +72,19 @@
       },
       {
         "command": "flowbook.openFlow",
-        "title": "Open Flow…",
+        "title": "Open Flow\u2026",
         "category": "Flowbook",
         "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "flowbook.installCli",
+        "title": "Install CLI (flowbook command)",
+        "category": "Flowbook"
+      },
+      {
+        "command": "flowbook.installSkill",
+        "title": "Add Agent Skill to Repository",
+        "category": "Flowbook"
       },
       {
         "command": "flowbook.showUsages",

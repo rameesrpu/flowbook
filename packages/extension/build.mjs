@@ -1,6 +1,6 @@
 // Bundles the extension host into dist/extension.cjs, copies the tree-sitter WASM files next to
-// it and the webview build into dist/webview/.
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+// it, the webview build into dist/webview/, the CLI into dist/cli/ and the skill into dist/skill/.
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,19 @@ if (existsSync(join(webviewSrc, 'webview.js'))) {
       'Flow panels will show a placeholder.',
   );
 }
+
+// The CLI (installed as a `flowbook` command by "Flowbook: Install CLI") and the agent skill.
+const cliSrc = join(here, '..', 'cli', 'dist');
+rmSync(join(dist, 'cli'), { recursive: true, force: true });
+if (existsSync(join(cliSrc, 'flowbook.js'))) {
+  cpSync(cliSrc, join(dist, 'cli'), { recursive: true });
+  // flowbook.js is ESM; without this Node warns when run from outside the CLI package.
+  writeFileSync(join(dist, 'cli', 'package.json'), '{ "type": "module" }\n');
+} else {
+  console.warn(`warning: ${cliSrc}/flowbook.js not found; build @flowbook/cli first.`);
+}
+rmSync(join(dist, 'skill'), { recursive: true, force: true });
+cpSync(join(here, '..', '..', 'skill', 'flowbook'), join(dist, 'skill'), { recursive: true });
 
 const options = {
   entryPoints: [join(here, 'src', 'extension.ts')],

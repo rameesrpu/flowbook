@@ -1,9 +1,11 @@
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { UsageLink } from '@flowbook/core';
 import { Resolver } from '@flowbook/resolver';
 import * as vscode from 'vscode';
 import { C_CPP_SELECTOR, FlowLenses, showUsages } from './codelens.js';
 import { Flowbook } from './host.js';
+import { hasShim, installCli, installSkill, SKILL_DIR, type CliInstall } from './install.js';
 import { Panels } from './panel.js';
 import { FlowsTree } from './tree.js';
 
@@ -28,6 +30,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
   context.subscriptions.push(flowbook, panels);
 
   const open = (root: string, flowId: string, focus?: string) => panels.show(root, flowId, focus);
+
+  const cli: CliInstall = {
+    bundled: join(context.extensionPath, 'dist', 'cli'),
+    stable: join(context.globalStorageUri.fsPath, 'cli'),
+    binDir: join(homedir(), '.local', 'bin'),
+    platform: process.platform,
+    execPath: process.execPath,
+  };
+  // The shim points at a stable copy; refresh it so extension updates reach the CLI too.
+  if (hasShim(cli)) {
+    try {
+      installCli(cli);
+    } catch (e) {
+      log.appendLine(`CLI refresh failed: ${String(e)}`);
+    }
+  }
 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('flowbook.flows', tree),
@@ -70,6 +88,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
         if (pick) open(pick.root, pick.id);
       },
     ),
+    vscode.commands.registerCommand('flowbook.installCli', async () => {
+      try {
+        const { shim, onPath } = installCli(cli);
+        const msg = onPath
+          ? `Flowbook: installed the \`flowbook\` command at ${shim}.`
+          : `Flowbook: installed ${shim}. Add ${cli.binDir} to your PATH to run \`flowbook\` from any shell.`;
+        void vscode.window.showInformationMessage(msg);
+        return shim;
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Flowbook: could not install the CLI: ${String(e)}`);
+      }
+    }),
+    vscode.commands.registerCommand('flowbook.installSkill', async (target?: string) => {
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      const repo =
+        target ??
+        (folders.length === 1
+          ? folders[0]!.uri.fsPath
+          : (
+              await vscode.window.showWorkspaceFolderPick({
+                placeHolder: `Copy the Flowbook skill to <folder>/${SKILL_DIR}`,
+              })
+            )?.uri.fsPath);
+      if (!repo) return;
+      const dest = installSkill(join(context.extensionPath, 'dist', 'skill'), repo);
+      void vscode.window.showInformationMessage(
+        `Flowbook: copied the agent skill to ${vscode.workspace.asRelativePath(dest)}. ` +
+          'Claude Code picks it up from there; point other agents at its SKILL.md.',
+      );
+      return dest;
+    }),
     vscode.commands.registerCommand('flowbook.showUsages', (root: string, usages: UsageLink[]) =>
       showUsages(open, root, usages),
     ),
