@@ -74,7 +74,7 @@
         "command": "flowbook.openFlow",
         "title": "Open Flow…",
         "category": "Flowbook",
-        "icon": "$(type-hierarchy-sub)"
+        "icon": "$(search)"
       },
       {
         "command": "flowbook.showUsages",
@@ -84,6 +84,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "flowbook.openFlow",
+          "when": "view == flowbook.flows",
+          "group": "navigation@0"
+        },
         {
           "command": "flowbook.refresh",
           "when": "view == flowbook.flows",

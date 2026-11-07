@@ -5,6 +5,7 @@ import { Resolver, type ReadSource } from '@flowbook/resolver';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   buildPayload,
+  flowSections,
   definitionDiff,
   languageOf,
   lensTargets,
@@ -192,5 +193,26 @@ describe('paths', () => {
   it('locates a file in the innermost root', () => {
     expect(locate(['/r', '/r/sub'], '/r/sub/src/a.c')).toEqual({ root: '/r/sub', rel: 'src/a.c' });
     expect(locate(['/r'], '/rx/a.c')).toBeUndefined();
+  });
+});
+
+describe('flowSections', () => {
+  const flow = (id: string, tags?: string[]) =>
+    ({ meta: { kind: 'flow', id, title: id, tags }, nodes: [], steps: [], blocks: [] }) as never;
+
+  it('lists each flow once, under its first tag, untagged last', () => {
+    const sections = flowSections([
+      flow('b', ['net', 'io']),
+      flow('a', ['io', 'net']),
+      flow('c'),
+      flow('d', ['net']),
+    ]);
+    expect(
+      sections.map((s) => [s.tag, s.flows.map((f) => (f as { meta: { id: string } }).meta.id)]),
+    ).toEqual([
+      ['io', ['a']],
+      ['net', ['b', 'd']],
+      [undefined, ['c']],
+    ]);
   });
 });

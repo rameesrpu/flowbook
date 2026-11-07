@@ -55,9 +55,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
         const items = [...flowbook.roots.values()].flatMap((state) =>
           state.ws.flows.map((f) => ({
             label: f.meta.title,
-            description: f.meta.id,
+            description: [f.meta.id, ...(f.meta.tags ?? []).map((t) => `#${t}`)].join('  '),
             detail:
-              flowbook.roots.size > 1 ? vscode.workspace.asRelativePath(state.root) : undefined,
+              [
+                flowbook.roots.size > 1 ? vscode.workspace.asRelativePath(state.root) : '',
+                f.meta.summary?.split('\n')[0] ?? '',
+              ]
+                .filter(Boolean)
+                .join(' — ') || undefined,
             root: state.root,
             id: f.meta.id,
           })),
@@ -66,7 +71,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
           void vscode.window.showInformationMessage('Flowbook: no flows found in this workspace.');
           return;
         }
-        const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Open flow' });
+        const pick = await vscode.window.showQuickPick(items, {
+          placeHolder: 'Open flow — search by title, id, #tag or summary',
+          matchOnDescription: true,
+          matchOnDetail: true,
+        });
         if (pick) open(pick.root, pick.id);
       },
     ),

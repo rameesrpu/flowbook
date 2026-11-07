@@ -9,15 +9,15 @@ or digit. Node, step and block ids share one namespace per flow.
 
 ## `flow` — exactly one per file, first line
 
-| Field     | Type                             | Notes                                                      |
-| --------- | -------------------------------- | ---------------------------------------------------------- |
-| `kind`    | `"flow"`                         |                                                            |
-| `id`      | id                               | must equal the file name without `.jsonl`                  |
-| `title`   | string                           | e.g. `"Packet handling"`                                   |
-| `summary` | markdown?                        | one short paragraph: trigger, outcome, why it matters      |
-| `entry`   | node id?                         | where the scenario starts                                  |
-| `tags`    | string[]?                        | groups flows in the extension's tree, e.g. `["lifecycle"]` |
-| `layout`  | `{ "direction": "LR" \| "TB" }`? | flowchart direction, default `LR`                          |
+| Field     | Type                             | Notes                                                                                                                                               |
+| --------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`    | `"flow"`                         |                                                                                                                                                     |
+| `id`      | id                               | must equal the file name without `.jsonl`                                                                                                           |
+| `title`   | string                           | e.g. `"Packet handling"`                                                                                                                            |
+| `summary` | markdown?                        | one short paragraph: trigger, outcome, why it matters                                                                                               |
+| `entry`   | node id?                         | where the scenario starts                                                                                                                           |
+| `tags`    | string[]?                        | first tag = the flow's section in the extension's tree (put the most useful classifier first); all tags are searchable, e.g. `["lifecycle", "net"]` |
+| `layout`  | `{ "direction": "LR" \| "TB" }`? | flowchart direction, default `LR`                                                                                                                   |
 
 ## `node` — a function, macro, class or external actor
 

@@ -64,6 +64,7 @@ export function FlowNodeView({ data, selected }: NodeProps & { data: FlowNodeDat
         data.dimmed && 'fb-dimmed',
       )}
       style={data.color ? ({ '--fb-band': data.color } as React.CSSProperties) : undefined}
+      title={external ? undefined : `${data.symbol} — double-click to open code`}
     >
       <Handles />
       <div className="fb-node__title">
