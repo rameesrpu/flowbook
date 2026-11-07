@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   project,
   type AnchorStateName,
@@ -19,6 +19,10 @@ interface Props {
   selection?: Selection;
   onToggle: (groupId: string) => void;
   onSelect: (selection: Selection | undefined) => void;
+  /** Double-click on a participant or message: open the node's code. */
+  onOpenCode: (nodeId: string) => void;
+  zoom: number;
+  onZoom: (zoom: number) => void;
 }
 
 interface Participant {
@@ -62,15 +66,26 @@ const BOX_MIN = 120;
 const BOX_MAX = 220;
 const BAND_H = 18;
 const BOX_H = 44;
-const HEADER_H = BAND_H + 6 + BOX_H + 10;
-const ROW_H = 34;
+const ROW_H = 36;
 const SELF_H = 44;
 const SELF_W = 26;
 const FRAME_HEAD = 26;
 const FRAME_FOOT = 8;
 const LABEL_CHARS = 56;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2.5;
+const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
 
 const GROUP_ICON = { module: '◆', folder: '▤', file: '▢' } as const;
+
+interface Band {
+  group: string;
+  depth: number;
+  label: string;
+  color: string;
+  x1: number;
+  x2: number;
+}
 
 interface Model {
   participants: Participant[];
@@ -78,7 +93,9 @@ interface Model {
   frames: Frame[];
   width: number;
   height: number;
-  bands: { root: string; label: string; color: string; x1: number; x2: number }[];
+  /** Open groups over the participants, one row per nesting depth (row 0 = top-level). */
+  bands: Band[];
+  bandRows: number;
   visibleOf: Map<string, string>;
 }
 
@@ -140,8 +157,8 @@ function buildModel(payload: FlowPayload, tree: GroupTree, collapsed: ReadonlySe
     const to = index.get(vis(s.to))!;
     const text = truncate(s.label, LABEL_CHARS);
     const seq = String(s.seq);
-    let width = textWidth(seq, 11, { bold: true }) + 6 + textWidth(text, 12);
-    if (s.guard) width += textWidth(`[${s.guard}]`, 11, { mono: true }) + 6;
+    let width = textWidth(seq, 12, { bold: true }) + 6 + textWidth(text, 13);
+    if (s.guard) width += textWidth(`[${s.guard}]`, 12, { mono: true }) + 6;
     return {
       step: s,
       from,
@@ -243,20 +260,44 @@ function buildModel(payload: FlowPayload, tree: GroupTree, collapsed: ReadonlySe
     width = Math.max(width, f.x2 + 8);
   }
 
-  // Coloured bands over runs of participants from the same top-level group.
-  const bands: Model['bands'] = [];
-  for (const p of participants) {
-    const prev = bands[bands.length - 1];
-    if (prev && p.root && prev.root === p.root) prev.x2 = p.x + p.half;
-    else if (p.root) {
-      bands.push({
-        root: p.root,
-        label: tree.groups.get(p.root)!.label,
+  // Bands over runs of participants that share an open group, one row per depth. Clicking a
+  // band collapses that group, like a group header in the flowchart.
+  const chains = participants.map((p) => {
+    const chain: string[] = [];
+    let g = tree.groups.get(
+      p.kind === 'group' ? (tree.groups.get(p.id)?.parent ?? '') : (tree.groupOf.get(p.id) ?? ''),
+    );
+    while (g) {
+      chain.unshift(g.id);
+      g = g.parent ? tree.groups.get(g.parent) : undefined;
+    }
+    return chain;
+  });
+  const bandRows = Math.max(0, ...chains.map((c) => c.length));
+  const bands: Band[] = [];
+  for (let depth = 0; depth < bandRows; depth++) {
+    let prev: Band | undefined;
+    participants.forEach((p, i) => {
+      const id = chains[i]![depth];
+      if (!id) {
+        prev = undefined;
+        return;
+      }
+      if (prev && prev.group === id) {
+        prev.x2 = p.x + p.half;
+        return;
+      }
+      const g = tree.groups.get(id)!;
+      prev = {
+        group: id,
+        depth,
+        label: `${GROUP_ICON[g.kind]} ${g.label}`,
         color: p.color!,
         x1: p.x - p.half,
         x2: p.x + p.half,
-      });
-    }
+      };
+      bands.push(prev);
+    });
   }
 
   return {
@@ -266,14 +307,69 @@ function buildModel(payload: FlowPayload, tree: GroupTree, collapsed: ReadonlySe
     width: Math.ceil(width),
     height,
     bands,
+    bandRows,
     visibleOf: projection.visibleOf,
   };
 }
 
-export function SequenceView({ payload, tree, collapsed, selection, onToggle, onSelect }: Props) {
+export function SequenceView({
+  payload,
+  tree,
+  collapsed,
+  selection,
+  onToggle,
+  onSelect,
+  onOpenCode,
+  zoom,
+  onZoom,
+}: Props) {
   const model = useMemo(() => buildModel(payload, tree, collapsed), [payload, tree, collapsed]);
-  const { participants, messages, frames, width, height, bands } = model;
+  const { participants, messages, frames, width, height, bands, bandRows } = model;
   const { flow } = payload;
+  const headerH = bandRows * BAND_H + 6 + BOX_H + 10;
+
+  // Zoom: Ctrl/Cmd + wheel (or pinch) keeps the point under the cursor in place.
+  const scroller = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const anchor = useRef<{ x: number; y: number; from: number }>();
+  const zoomTo = (next: number, at?: { x: number; y: number }) => {
+    const z = clampZoom(next);
+    if (z === zoomRef.current) return;
+    const el = scroller.current;
+    if (el) {
+      const x = at?.x ?? el.clientWidth / 2;
+      const y = at?.y ?? el.clientHeight / 2;
+      anchor.current = { x, y, from: zoomRef.current };
+    }
+    onZoom(z);
+  };
+  const zoomToRef = useRef(zoomTo);
+  zoomToRef.current = zoomTo;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      zoomToRef.current(zoomRef.current * Math.exp(-e.deltaY * 0.002), {
+        x: e.clientX - r.left,
+        y: e.clientY - r.top,
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const a = anchor.current;
+    anchor.current = undefined;
+    if (!el || !a) return;
+    const k = zoom / a.from;
+    el.scrollLeft = (el.scrollLeft + a.x) * k - a.x;
+    el.scrollTop = (el.scrollTop + a.y) * k - a.y;
+  }, [zoom]);
 
   // Steps and participants related to the selection.
   const focus = useMemo(() => {
@@ -308,183 +404,227 @@ export function SequenceView({ payload, tree, collapsed, selection, onToggle, on
   }
 
   return (
-    <div className="fb-seq" onClick={() => onSelect(undefined)}>
-      <ArrowDefs />
-      <div className="fb-seq__inner" style={{ width }}>
-        <div className="fb-seq__header" style={{ height: HEADER_H }}>
-          {bands.map((b) => (
-            <div
-              key={`${b.root}-${b.x1}`}
-              className="fb-seq__band"
-              style={
-                {
-                  left: b.x1,
-                  width: b.x2 - b.x1,
-                  height: BAND_H,
-                  '--fb-band': b.color,
-                } as React.CSSProperties
-              }
-              title={b.label}
-            >
-              {b.label}
-            </div>
-          ))}
-          {participants.map((p, i) => {
-            const selected = selection?.kind === 'node' && selection.id === p.id;
-            return (
-              <button
-                key={p.id}
-                className={[
-                  'fb-seq__box',
-                  p.kind === 'group' && 'fb-seq__box--group',
-                  p.sub === 'external' && 'fb-seq__box--external',
-                  selected && 'is-selected',
-                  focus && !focus.parts.has(i) && 'fb-dimmed',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                style={
-                  {
-                    left: p.x - p.half,
-                    top: BAND_H + 6,
-                    width: p.half * 2,
-                    height: BOX_H,
-                    '--fb-band': p.color,
-                  } as React.CSSProperties
-                }
-                title={p.kind === 'group' ? 'Click to expand this group' : p.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (p.kind === 'group') onToggle(p.id);
-                  else onSelect({ kind: 'node', id: p.id });
-                }}
-              >
-                <span className="fb-seq__box-title">
-                  {p.entry && <span className="fb-seq__entry">▶</span>}
-                  {p.state && p.state !== 'fresh' && (
-                    <span
-                      className={`fb-status fb-status--${p.state}`}
-                      title={STATE_INFO[p.state].label}
-                    />
-                  )}
-                  <span className="fb-node__text">{p.label}</span>
-                </span>
-                <span className="fb-seq__box-sub">{p.sub}</span>
-              </button>
-            );
-          })}
-        </div>
-        <svg width={width} height={height} className="fb-seq__svg">
-          {participants.map((p, i) => (
-            <line
-              key={p.id}
-              x1={p.x}
-              x2={p.x}
-              y1={0}
-              y2={height}
-              className={`fb-seq__lifeline${focus && !focus.parts.has(i) ? ' fb-dimmed' : ''}`}
-            />
-          ))}
-          {frames.map((f) => {
-            const tabW = textWidth(f.block.type, 11, { bold: true }) + 16;
-            const active = focus?.block === f.block.id;
-            return (
-              <g
-                key={f.block.id}
-                className={`fb-frame fb-frame--${f.block.type}${active ? ' is-selected' : ''}${focus && !active ? ' fb-faded' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect({ kind: 'block', id: f.block.id });
-                }}
-              >
-                <rect
-                  x={f.x1}
-                  y={f.top}
-                  width={f.x2 - f.x1}
-                  height={f.bottom - f.top}
-                  rx={3}
-                  className="fb-frame__box"
-                />
-                <path
-                  d={`M ${f.x1} ${f.top} h ${tabW} v 12 l -6 6 h ${-(tabW - 6)} z`}
-                  className="fb-frame__tab"
-                />
-                <text x={f.x1 + 7} y={f.top + 13} className="fb-frame__type">
-                  {f.block.type}
-                </text>
-                <text x={f.x1 + tabW + 8} y={f.top + 13} className="fb-frame__label">
-                  [{f.block.label}]
-                </text>
-              </g>
-            );
-          })}
-          {messages.map((m) => {
-            const a = participants[m.from]!.x;
-            const b = participants[m.to]!.x;
-            const self = m.from === m.to;
-            const type = m.step.type;
-            const hl = !!focus?.steps.has(m.step.id);
-            const dim = (focus && !hl) || m.internal;
-            const lineY = m.y + 22;
-            const d = self
-              ? `M ${a} ${lineY} H ${a + SELF_W} V ${lineY + 14} H ${a + 1}`
-              : `M ${a} ${lineY} H ${b}`;
-            const lx = self ? a + 6 : (a + b) / 2;
-            const ly = lineY - 7;
-            const lw = m.label.width;
-            const bx = self ? lx - 3 : lx - lw / 2 - 4;
-            return (
-              <g
-                key={m.step.id}
-                className={[
-                  'fb-msg',
-                  `fb-msg--${type}`,
-                  hl && 'is-selected',
-                  dim && 'fb-dimmed',
-                  m.internal && 'fb-msg--internal',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect({ kind: 'step', id: m.step.id });
-                }}
-              >
-                <title>
-                  {`${m.step.seq}. ${m.step.guard ? `[${m.step.guard}] ` : ''}${m.step.label}${m.internal ? ' (inside collapsed group)' : ''}`}
-                </title>
-                <path d={d} className="fb-msg__hit" />
-                <rect
-                  x={bx}
-                  y={ly - 12}
-                  width={lw + 8}
-                  height={16}
-                  rx={3}
-                  className="fb-msg__label-bg"
-                />
-                <path
-                  d={d}
-                  className={`fb-line fb-line--${type}`}
-                  markerEnd={`url(#${markerId(type, hl)})`}
-                />
-                <text
-                  x={lx}
-                  y={ly}
-                  textAnchor={self ? 'start' : 'middle'}
-                  className="fb-msg__label"
+    <div className="fb-seq-wrap">
+      <div ref={scroller} className="fb-seq" onClick={() => onSelect(undefined)}>
+        <ArrowDefs />
+        <div className="fb-seq__inner" style={{ width, zoom }}>
+          <div className="fb-seq__header" style={{ height: headerH }}>
+            {bands.map((b) => {
+              const g = tree.groups.get(b.group)!;
+              return (
+                <button
+                  key={`${b.group}-${b.x1}`}
+                  className={`fb-seq__band fb-seq__band--depth${Math.min(b.depth, 2)}`}
+                  style={
+                    {
+                      left: b.x1,
+                      top: 4 + b.depth * BAND_H,
+                      width: b.x2 - b.x1,
+                      height: BAND_H - 2,
+                      '--fb-band': b.color,
+                    } as React.CSSProperties
+                  }
+                  title={`${g.kind} ${g.path ?? g.label} — click to collapse`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggle(b.group);
+                  }}
                 >
-                  <tspan className="fb-msg__seq">{m.label.seq}</tspan>
-                  {m.label.guard && (
-                    <tspan dx={6} className="fb-msg__guard">
-                      [{m.label.guard}]
-                    </tspan>
-                  )}
-                  <tspan dx={6}>{m.label.text}</tspan>
-                </text>
-              </g>
-            );
-          })}
-        </svg>
+                  {b.label}
+                </button>
+              );
+            })}
+            {participants.map((p, i) => {
+              const selected = selection?.kind === 'node' && selection.id === p.id;
+              return (
+                <button
+                  key={p.id}
+                  className={[
+                    'fb-seq__box',
+                    p.kind === 'group' && 'fb-seq__box--group',
+                    p.sub === 'external' && 'fb-seq__box--external',
+                    selected && 'is-selected',
+                    focus && !focus.parts.has(i) && 'fb-dimmed',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  style={
+                    {
+                      left: p.x - p.half,
+                      top: bandRows * BAND_H + 6,
+                      width: p.half * 2,
+                      height: BOX_H,
+                      '--fb-band': p.color,
+                    } as React.CSSProperties
+                  }
+                  title={
+                    p.kind === 'group'
+                      ? 'Click to expand this group'
+                      : p.sub === 'external'
+                        ? p.id
+                        : `${p.id} — double-click to open code`
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (p.kind === 'group') onToggle(p.id);
+                    else onSelect({ kind: 'node', id: p.id });
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (p.kind === 'node') onOpenCode(p.id);
+                  }}
+                >
+                  <span className="fb-seq__box-title">
+                    {p.entry && <span className="fb-seq__entry">▶</span>}
+                    {p.state && p.state !== 'fresh' && (
+                      <span
+                        className={`fb-status fb-status--${p.state}`}
+                        title={STATE_INFO[p.state].label}
+                      />
+                    )}
+                    <span className="fb-node__text">{p.label}</span>
+                  </span>
+                  <span className="fb-seq__box-sub">{p.sub}</span>
+                </button>
+              );
+            })}
+          </div>
+          <svg width={width} height={height} className="fb-seq__svg">
+            {participants.map((p, i) => (
+              <line
+                key={p.id}
+                x1={p.x}
+                x2={p.x}
+                y1={0}
+                y2={height}
+                className={`fb-seq__lifeline${focus && !focus.parts.has(i) ? ' fb-dimmed' : ''}`}
+              />
+            ))}
+            {frames.map((f) => {
+              const tabW = textWidth(f.block.type, 11, { bold: true }) + 16;
+              const active = focus?.block === f.block.id;
+              return (
+                <g
+                  key={f.block.id}
+                  className={`fb-frame fb-frame--${f.block.type}${active ? ' is-selected' : ''}${focus && !active ? ' fb-faded' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect({ kind: 'block', id: f.block.id });
+                  }}
+                >
+                  <rect
+                    x={f.x1}
+                    y={f.top}
+                    width={f.x2 - f.x1}
+                    height={f.bottom - f.top}
+                    rx={3}
+                    className="fb-frame__box"
+                  />
+                  <path
+                    d={`M ${f.x1} ${f.top} h ${tabW} v 12 l -6 6 h ${-(tabW - 6)} z`}
+                    className="fb-frame__tab"
+                  />
+                  <text x={f.x1 + 7} y={f.top + 13} className="fb-frame__type">
+                    {f.block.type}
+                  </text>
+                  <text x={f.x1 + tabW + 8} y={f.top + 13} className="fb-frame__label">
+                    [{f.block.label}]
+                  </text>
+                </g>
+              );
+            })}
+            {messages.map((m) => {
+              const a = participants[m.from]!.x;
+              const b = participants[m.to]!.x;
+              const self = m.from === m.to;
+              const type = m.step.type;
+              const hl = !!focus?.steps.has(m.step.id);
+              const dim = focus && !hl;
+              const lineY = m.y + 22;
+              const d = self
+                ? `M ${a} ${lineY} H ${a + SELF_W} V ${lineY + 14} H ${a + 1}`
+                : `M ${a} ${lineY} H ${b}`;
+              const lx = self ? a + 6 : (a + b) / 2;
+              const ly = lineY - 7;
+              const lw = m.label.width;
+              const bx = self ? lx - 3 : lx - lw / 2 - 4;
+              return (
+                <g
+                  key={m.step.id}
+                  className={[
+                    'fb-msg',
+                    `fb-msg--${type}`,
+                    hl && 'is-selected',
+                    dim && 'fb-dimmed',
+                    m.internal && 'fb-msg--internal',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect({ kind: 'step', id: m.step.id });
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    const from = flow.nodes.find((n) => n.id === m.step.from);
+                    onOpenCode(from?.anchor ? m.step.from : m.step.to);
+                  }}
+                >
+                  <title>
+                    {`${m.step.seq}. ${m.step.guard ? `[${m.step.guard}] ` : ''}${m.step.label}${m.internal ? ' (inside collapsed group)' : ''}`}
+                  </title>
+                  <path d={d} className="fb-msg__hit" />
+                  <rect
+                    x={bx}
+                    y={ly - 13}
+                    width={lw + 8}
+                    height={18}
+                    rx={3}
+                    className="fb-msg__label-bg"
+                  />
+                  <path
+                    d={d}
+                    className={`fb-line fb-line--${type}`}
+                    markerEnd={`url(#${markerId(type, hl)})`}
+                  />
+                  <text
+                    x={lx}
+                    y={ly}
+                    textAnchor={self ? 'start' : 'middle'}
+                    className="fb-msg__label"
+                  >
+                    <tspan className="fb-msg__seq">{m.label.seq}</tspan>
+                    {m.label.guard && (
+                      <tspan dx={6} className="fb-msg__guard">
+                        [{m.label.guard}]
+                      </tspan>
+                    )}
+                    <tspan dx={6}>{m.label.text}</tspan>
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+      <div className="fb-zoom" role="group" aria-label="Zoom">
+        <button
+          title="Zoom out (Ctrl + wheel)"
+          onClick={() => zoomTo(zoom / 1.15)}
+          disabled={zoom <= ZOOM_MIN}
+        >
+          −
+        </button>
+        <button title="Reset zoom" className="fb-zoom__level" onClick={() => zoomTo(1)}>
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          title="Zoom in (Ctrl + wheel)"
+          onClick={() => zoomTo(zoom * 1.15)}
+          disabled={zoom >= ZOOM_MAX}
+        >
+          +
+        </button>
       </div>
     </div>
   );

@@ -35,6 +35,8 @@ interface Props {
   onToggle: (groupId: string) => void;
   onSelect: (selection: Selection | undefined) => void;
   onDrill: (flowId: string) => void;
+  /** Double-click on a node: open its code in the editor. */
+  onOpenCode: (nodeId: string) => void;
 }
 
 export function Flowchart(props: Props) {
@@ -45,7 +47,16 @@ export function Flowchart(props: Props) {
   );
 }
 
-function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDrill }: Props) {
+function Canvas({
+  payload,
+  tree,
+  collapsed,
+  selection,
+  onToggle,
+  onSelect,
+  onDrill,
+  onOpenCode,
+}: Props) {
   const { flow } = payload;
   const projection = useMemo(() => project(flow, tree, collapsed), [flow, tree, collapsed]);
   const [laidOut, setLaidOut] = useState<{ layout: Layout; projection: Projection }>();
@@ -209,6 +220,10 @@ function Canvas({ payload, tree, collapsed, selection, onToggle, onSelect, onDri
         onNodeClick={(_, node) =>
           onSelect(node.type === 'fbNode' ? { kind: 'node', id: node.id } : undefined)
         }
+        onNodeDoubleClick={(_, node) => {
+          if (node.type === 'fbNode') onOpenCode(node.id);
+        }}
+        zoomOnDoubleClick={false}
         onEdgeClick={(_, edge) => {
           const e = projection.edges.find((x) => x.id === edge.id);
           if (e) onSelect({ kind: 'edge', id: e.id, steps: e.steps });

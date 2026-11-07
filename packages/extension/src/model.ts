@@ -65,6 +65,32 @@ function anchorInfo(s: AnchorStatus): AnchorInfo {
   return { state: s.state };
 }
 
+export interface FlowSection {
+  /** The section's tag; `undefined` for flows without tags. */
+  tag: string | undefined;
+  flows: Flow[];
+}
+
+/**
+ * Sections for the flows tree. A flow's first tag is its section, so each flow is listed exactly
+ * once; its other tags are only for search. Sections and flows sort by name, "Untagged" last.
+ */
+export function flowSections(flows: readonly Flow[]): FlowSection[] {
+  const byTag = new Map<string | undefined, Flow[]>();
+  for (const f of flows) {
+    const tag = f.meta.tags?.[0];
+    byTag.set(tag, [...(byTag.get(tag) ?? []), f]);
+  }
+  return [...byTag]
+    .map(([tag, list]) => ({
+      tag,
+      flows: list.sort((a, b) => a.meta.title.localeCompare(b.meta.title)),
+    }))
+    .sort((a, b) =>
+      a.tag === undefined ? 1 : b.tag === undefined ? -1 : a.tag.localeCompare(b.tag),
+    );
+}
+
 export function buildPayload(
   state: RootState,
   flowId: string,
