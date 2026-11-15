@@ -24,15 +24,16 @@ Run it from the repository root (or anywhere below a directory containing `.flow
 anchor paths are relative to the directory that contains `.flowbook/`. If `flowbook` is not on PATH, ask the user where the
 Flowbook CLI is installed (e.g. `node /path/to/flowbook/packages/cli/dist/flowbook.js`).
 
-| Command                            | Use it to                                                           |
-| ---------------------------------- | ------------------------------------------------------------------- |
-| `flowbook resolve <file>`          | list every definition in a file as a ready-to-paste `anchor`        |
-| `flowbook resolve <file> <symbol>` | check one anchor; suggests qualified names and overload `sig`s      |
-| `flowbook check`                   | validate schema, references and anchors (exit 1 on errors)          |
-| `flowbook stamp <flow-id>`         | record each node's code fingerprint + commit after you verified it  |
-| `flowbook stale`                   | list nodes whose code changed since they were stamped               |
-| `flowbook sites [--rule <id>]`     | list send/receive sites found by the rules and what they pair to    |
-| `flowbook sites --unpaired`        | only the sites with nothing on the other end (`--json` for scripts) |
+| Command                            | Use it to                                                                  |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `flowbook resolve <file>`          | list every definition in a file as a ready-to-paste `anchor`               |
+| `flowbook resolve <file> <symbol>` | check one anchor; suggests qualified names and overload `sig`s             |
+| `flowbook check`                   | validate schema, references and anchors (exit 1 on errors)                 |
+| `flowbook stamp <flow-id>`         | record each node's code fingerprint + commit after you verified it         |
+| `flowbook stale`                   | list nodes whose code changed since they were stamped                      |
+| `flowbook sites [--rule <id>]`     | list send/receive sites found by the rules and what they pair to           |
+| `flowbook sites --unpaired`        | only the sites with nothing on the other end or missing their receive site |
+| `flowbook sites --json`            | the same as JSON for scripts; lines and columns are 1-based                |
 
 Never write `fp` or `verified` by hand — `stamp` owns them.
 
@@ -107,9 +108,14 @@ with **connections**, both in `.flowbook/connections.jsonl` (full reference in
 [references/schema.md](references/schema.md)). Neither carries line numbers or fingerprints.
 
 - A **rule** describes a mechanism: which calls/fields/cases are the _send_ side and which are the
-  _receive_ side. Flowbook scans the whole repository for them; each hit is a **site**.
+  _receive_ side. Flowbook scans for them; each hit is a **site**.
 - A **connection** names a pairing the scan derived (keyed) or joins send and receive functions
   the scan cannot link by itself (anchored).
+
+The scan covers every C/C++ source file below the directory that contains `.flowbook/`. It skips
+directories whose name starts with `.`, `node_modules`, `build`, `dist` and `out`, and symbolic
+links to files or directories. Files larger than 2 MB, and files the parser fails on, are skipped
+with a `warning: skipped <file>: <reason>` line on stderr.
 
 ### The loop
 
@@ -118,11 +124,14 @@ with **connections**, both in `.flowbook/connections.jsonl` (full reference in
 2. Write a `rule` line (matcher names are regular expressions matching the whole name;
    argument positions are 1-based).
 3. Run `flowbook sites --rule <id>`. Every send and receive site is listed with its reactors.
+   If `connections.jsonl` has an error, `sites` prints it on stderr and exits 1. Fix it first:
+   a rule with a mistyped field is not loaded at all, and a matcher with an invalid regular
+   expression finds nothing.
    Fix the rule until exactly the right sites appear (too few: loosen the name or add a
    matcher; too many: narrow the name or add `files`). On a large codebase, read the summary
    line and `flowbook sites --unpaired` rather than the full list.
 4. Add a keyed `connection` for each key you verified, and an anchored one for a plain queue
-   with no key. A reactor marked `?` is unconfirmed; a keyed connection confirms it.
+   with no key. What each mark in the output asks of you is in "Reading the output" below.
 5. Run `flowbook check`. Errors name the record's line in `connections.jsonl`. Its summary line
    counts flows only, so no error lines means the connections are valid too.
 6. Explain what stays unpaired (in the rule's `notes` or the repository's docs): every
@@ -219,15 +228,21 @@ An anchored connection works per function: it pairs _every_ send site of the rul
 two different queues, anchoring it joins both to the same receivers; leave such sites unpaired
 and explain them instead of anchoring them.
 
-Reading the output: on a send line, `→ unpaired` means nothing reacts to it (check the rule, or
-add a connection); on a receive line it means nothing sends to it. `← 1 sender` is a receive
-site that something posts to. The summary `job: 2 send, 3 receive, 2 keys paired (1 confirmed),
-1 unpaired` counts keys (or sends, for rules without keys); a key is confirmed when all its
-reactors are. A handler named at the send site with one definition is confirmed without a
-record; reactors found by key need a keyed connection. When the rule has `receive` matchers but
-no receive site has the send's key, the send line ends with `· no receive site for <KEY>`, its
-handler is unconfirmed (the dispatcher has nothing that runs it), and the summary counts the key
-as `N without receive site` instead of paired: look for a missing `case` or a rule that misses it.
+### Reading the output
+
+| You see                                                                 | It means                                                                                                                                 | Do this                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `?` after a reactor found by key, e.g. `rt_main (case JOB_WRITE_CNF) ?` | the receive site (and a handler registered there) has the send's key, but no keyed connection covers that rule and key                   | read both ends; when they belong together, add a keyed connection for the key                                                                                                                                                                                          |
+| `(candidate)` after a handler                                           | several functions have the handler's name and none is a `static` one in the file that names it, so Flowbook cannot tell which one runs   | for a handler named at the send site, add an anchored connection: `send` is the function holding the send site, `receive` the chosen definition. For one registered in a callback slot no record confirms it; narrow the matcher with `files` or explain it in `notes` |
+| `· no receive site for KEY` at the end of a send line                   | the rule has `receive` matchers but no receive site has this key, so the handler is unconfirmed: the dispatcher has nothing that runs it | look for the missing `case` in the dispatcher, or fix the receive matcher that misses it. A keyed connection for this key fails `check` with "has no receive site"                                                                                                     |
+| `→ unpaired` on a send line                                             | nothing reacts to it                                                                                                                     | fix the rule, or add a connection                                                                                                                                                                                                                                      |
+| `→ unpaired` on a receive line                                          | nothing sends to it                                                                                                                      | check the send matchers; otherwise explain it in the rule's `notes`                                                                                                                                                                                                    |
+
+`← 1 sender` is a receive site that something posts to. A handler named at the send site with
+one definition is confirmed without a record. The summary `job: 2 send, 3 receive, 2 keys
+paired (1 confirmed), 1 unpaired` counts keys (or sends, for rules without keys); a key is
+confirmed when all its reactors are. Keys missing their receive site are counted as
+`N without receive site` instead of paired, and `--unpaired` lists their send lines.
 
 ### Known limits
 

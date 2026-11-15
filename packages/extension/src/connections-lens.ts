@@ -20,7 +20,8 @@ type View =
 
 /**
  * The connection index covering the document's current text. A saved document uses the root's
- * index; only a document with unsaved edits is re-parsed and gets an index of its own.
+ * index while the root's scan is current for it; a document with unsaved edits, or one saved
+ * after that scan began, is re-parsed and gets an index of its own.
  */
 function viewOf(flowbook: Flowbook, doc: vscode.TextDocument): View {
   const hit = flowbook.locate(doc.uri.fsPath);
@@ -28,7 +29,7 @@ function viewOf(flowbook: Flowbook, doc: vscode.TextDocument): View {
   const status = flowbook.scanStatus(hit.state.root);
   if (status !== 'ready') return { kind: status };
   const { state, rel } = hit;
-  if (!doc.isDirty) {
+  if (!doc.isDirty && flowbook.scanIsCurrent(state.root, doc.uri.fsPath)) {
     const symbols = state.scans.get(rel)?.symbols ?? [];
     return { kind: 'ready', index: state.connectionIndex, rel, symbols };
   }

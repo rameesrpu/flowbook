@@ -83,11 +83,11 @@ against the code on every scan.
 | --------- | ---------- | ------------------------------------------------------------------- |
 | `kind`    | `"rule"`   |                                                                     |
 | `id`      | id         |                                                                     |
-| `title`   | string     | e.g. `"Master job queue"`                                           |
+| `title`   | string     | e.g. `"Job queue"`                                                  |
 | `type`    | enum       | `queue`, `event`, `timer`, `callback`, `request`. For display only. |
 | `send`    | matcher[]  | at least one                                                        |
 | `receive` | matcher[]? | omit when every send matcher names a handler                        |
-| `context` | string?    | where reactors of this rule run, e.g. `"master thread"`             |
+| `context` | string?    | where reactors of this rule run, e.g. `"rt main task"`              |
 | `notes`   | markdown?  |                                                                     |
 
 ### Matchers
@@ -107,14 +107,16 @@ name is an exact match. Argument positions are 1-based.
 For `assign`, `"as": "key"` makes the right-hand side the key; `"as": "handler"` makes the
 right-hand side the handler and the field name the key. A key taken from an argument or a
 right-hand side is the identifier when it is one, otherwise the source text with whitespace
-removed. A handler must be an identifier; otherwise the site is kept and reported as having an
-unresolved handler.
+removed. A handler is an identifier, possibly written as `&fn` or `(fn)`, which resolve to `fn`;
+anything else (a call, a cast, an array element) is kept as a site and reported as having an
+unresolved handler. Assigning `NULL`, `nullptr` or `0` to a handler field clears the slot and is
+not a registration, so it gives no site.
 
 ```jsonl
-{"kind":"rule","id":"job","title":"Master job queue","type":"queue","context":"master thread","send":[{"call":"iolink_post_job_with_type_and_callback","key":3,"handler":4}],"receive":[{"case":"IOLINK_JOB_.*"}]}
-{"kind":"rule","id":"sched","title":"Scheduler timeout","type":"timer","send":[{"call":"pf_scheduler_add","handler":3}]}
+{"kind":"rule","id":"job","title":"Job queue","type":"queue","context":"rt main task","send":[{"call":"job_post","key":2,"handler":3}],"receive":[{"case":"JOB_.*"}]}
+{"kind":"rule","id":"timer","title":"Timer","type":"timer","send":[{"call":"timer_add","handler":2}]}
 {"kind":"rule","id":"app-cb","title":"Application callback","type":"callback","send":[{"invoke":".*_cb"}],"receive":[{"assign":".*_cb","as":"handler"}]}
-{"kind":"rule","id":"mbox","title":"Mailbox","type":"queue","send":[{"call":"os_mbox_post"}],"receive":[{"call":"os_mbox_fetch"}]}
+{"kind":"rule","id":"mbox","title":"Mailbox","type":"queue","send":[{"call":"mbox_post"}],"receive":[{"call":"mbox_fetch"}]}
 ```
 
 ### `connection`
@@ -124,14 +126,21 @@ unresolved handler.
 | `kind`    | `"connection"` |                                                 |
 | `id`      | id             |                                                 |
 | `rule`    | id             | the rule it belongs to                          |
-| `title`   | string         | e.g. `"AL read confirmation"`                   |
+| `title`   | string         | e.g. `"Read confirmation"`                      |
 | `key`     | string?        | keyed form                                      |
 | `send`    | anchor[]?      | anchored form: functions with the send sites    |
 | `receive` | anchor[]?      | anchored form: functions with the receive sites |
 | `context` | string?        | overrides the rule's `context`                  |
 | `notes`   | markdown?      |                                                 |
 
-Exactly one form: **keyed** (`key` only; names and confirms the pairing derived for that rule and
-key) or **anchored** (non-empty `send` and `receive` only; pairs every send site of the rule inside
-the `send` functions with every receive site inside the `receive` functions, which is how plain
-queues are paired). Anchors are the usual `file` + `symbol` (+ `sig`).
+Exactly one form:
+
+- **Keyed**: `key` only. Names and confirms the pairing derived for that rule and key. When the
+  rule has `receive` matchers, some receive site must have the key, otherwise `check` reports
+  "has no receive site". One keyed connection per rule and key; a repeat is ignored with a warning.
+- **Anchored**: non-empty `send` and `receive` only. Pairs every send site of the rule inside the
+  `send` functions with every receive site inside the `receive` functions, which is how plain
+  queues are paired. A `receive` function may instead be one of several same-named definitions of
+  the handler named at those send sites; that picks the definition.
+
+Anchors are the usual `file` + `symbol` (+ `sig`).

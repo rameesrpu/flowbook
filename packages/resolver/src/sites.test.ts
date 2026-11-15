@@ -153,6 +153,14 @@ describe('scan', () => {
     expect(s).toMatchObject({ matcher: 'invoke', symbol: 'S::run', key: 'state_cb' });
   });
 
+  it('gives one test site per identifier inside nested conditions (M6)', () => {
+    const r = rule({ send: [{ call: 'event_set', key: 1 }], receive: [{ test: 'EVT_.*' }] });
+    const text =
+      'int f(int x) { if (x & (EVT_A ? EVT_B : 0)) return 1; while (x ? EVT_C : 0) {} return 0; }';
+    const found = scan('x.c', text, [r]).filter((s) => s.role === 'receive');
+    expect(found.map((s) => s.key)).toEqual(['EVT_A', 'EVT_B', 'EVT_C']);
+  });
+
   it('returns no sites without rules', () => {
     expect(scan('src/rt/jobs.c', read('src/rt/jobs.c'), [])).toEqual([]);
   });

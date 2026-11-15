@@ -197,8 +197,11 @@ export function collectSites(
     }
   };
 
+  // A `?:` inside an `if` condition is visited twice; each identifier gives one site.
+  const tested = new Set<number>();
   const visitIdentifiers = (node: Node) => {
-    if (node.type === 'identifier') {
+    if (node.type === 'identifier' && !tested.has(node.id)) {
+      tested.add(node.id);
       for (const c of tests) {
         if (c.re.test(node.text)) add(c, node, { key: node.text });
       }

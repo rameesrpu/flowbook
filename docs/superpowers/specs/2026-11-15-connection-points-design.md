@@ -221,7 +221,8 @@ rule that has no receive matchers.
 - `flowbook sites [--rule <id>] [--unpaired] [--json]` lists the sites found, one per line as
   `file:line: rule role key → reactors`, then one summary line per rule, for example
   `job: 37 send, 39 receive, 27 keys paired (5 confirmed), 12 unpaired`. This is the agent's
-  feedback loop for writing rules, as `resolve` is for anchors. Exit code 0.
+  feedback loop for writing rules, as `resolve` is for anchors. Exit code 0, or 1 when
+  `connections.jsonl` has errors, which are printed on stderr first.
 - `flowbook check` also validates `connections.jsonl`. Errors: schema problems, an invalid
   regular expression, a connection naming an unknown rule, a connection that is neither form or
   both, a keyed connection whose key has no send site, a keyed connection whose key has no

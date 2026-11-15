@@ -356,6 +356,30 @@ describe('buildConnectionIndex on inline sources', () => {
     ]);
   });
 
+  it('warns about a second keyed connection for the same rule and key (M8)', () => {
+    const idx = build(
+      [
+        jobRule,
+        { kind: 'connection', id: 'k1', rule: 'jb', title: 'First', key: 'J_A' },
+        { kind: 'connection', id: 'k2', rule: 'jb', title: 'Second', key: 'J_A' },
+      ],
+      {
+        'a.c':
+          'void post(int);\nvoid s(void) { post(J_A); }\nvoid r(int t) { switch (t) { case J_A: break; } }\n',
+      },
+    );
+    expect(idx.diagnostics).toEqual([
+      {
+        severity: 'warning',
+        file: CONNECTIONS_FILE,
+        line: 3,
+        id: 'k2',
+        message: 'connection "k2" repeats key "J_A" of rule "jb" (first on line 2) and is ignored',
+      },
+    ]);
+    expect(pairingOf(idx, 's')!.connection).toBe('k1');
+  });
+
   it('gives every diagnostic the record line', () => {
     const idx = build(
       [

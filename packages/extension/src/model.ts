@@ -75,6 +75,20 @@ export function withScans(state: RootState, scans: Map<string, FileScan>): RootS
   };
 }
 
+/**
+ * Whether a root's finished scan still describes a file, so a clean document may use the root's
+ * connection index. `lastSave` (the file's latest save) and `scanStartedAt` (when the scan began)
+ * are values of one save counter; a file saved after the scan began, or a root with no finished
+ * scan, must be indexed from the document's text instead.
+ */
+export function savedScanIsCurrent(
+  lastSave: number | undefined,
+  scanStartedAt: number | undefined,
+): boolean {
+  if (lastSave === undefined) return true;
+  return scanStartedAt !== undefined && lastSave <= scanStartedAt;
+}
+
 export const findFlow = (state: RootState, flowId: string): Flow | undefined =>
   state.ws.flows.find((f) => f.meta.id === flowId);
 

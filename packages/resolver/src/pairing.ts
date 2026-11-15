@@ -172,7 +172,7 @@ function buildContext(
   connections: Connections,
   scans: Map<string, FileScan>,
   sites: Site[],
-  report: (record: Located<{ id: string }>, message: string) => void,
+  report: Report,
 ): Context {
   const rules = new Map(connections.rules.map((r) => [r.id, r]));
   const receivesByKey = new Map<string, Map<string, Site[]>>();
@@ -193,7 +193,14 @@ function buildContext(
     if (isKeyedForm(c)) {
       if (!keyed.has(c.rule)) keyed.set(c.rule, new Map());
       const byKey = keyed.get(c.rule)!;
-      if (!byKey.has(c.key!)) byKey.set(c.key!, c);
+      const first = byKey.get(c.key!);
+      if (!first) byKey.set(c.key!, c);
+      else
+        report(
+          c,
+          `connection "${c.id}" repeats key "${c.key}" of rule "${c.rule}" (first on line ${first.line}) and is ignored`,
+          'warning',
+        );
     } else if (isAnchoredForm(c)) {
       const resolve = (anchors: Anchor[]) =>
         anchors.flatMap((a) => resolveAnchor(a, scans, (m) => report(c, m)) ?? []);

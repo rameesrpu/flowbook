@@ -15,6 +15,7 @@ import {
   nameRange,
   problemCount,
   rootOfFlowbookFile,
+  savedScanIsCurrent,
   snippetOf,
   withScans,
   type RootState,
@@ -245,5 +246,18 @@ describe('flowSections', () => {
       ['net', ['b', 'd']],
       [undefined, ['c']],
     ]);
+  });
+});
+
+describe('savedScanIsCurrent (M3)', () => {
+  it('trusts the saved scan for a file not saved since the scan began', () => {
+    expect(savedScanIsCurrent(undefined, 4)).toBe(true);
+    expect(savedScanIsCurrent(3, 4)).toBe(true);
+    expect(savedScanIsCurrent(4, 4)).toBe(true);
+  });
+
+  it('distrusts it for a file saved after the scan began, or with no finished scan', () => {
+    expect(savedScanIsCurrent(5, 4)).toBe(false);
+    expect(savedScanIsCurrent(1, undefined)).toBe(false);
   });
 });

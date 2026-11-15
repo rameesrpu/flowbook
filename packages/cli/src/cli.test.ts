@@ -200,6 +200,81 @@ describe('sites', () => {
     expect(src[tick.line - 1]).toContain('case JOB_TICK');
   });
 
+  it('marks each of several handler candidates (I3)', () => {
+    edit(
+      'src/rt/jobs.c',
+      'static void on_poll_timeout(void *arg) {',
+      'void on_poll_timeout(void *arg) {',
+    );
+    writeFileSync(join(root, 'src/rt/poll.c'), 'void on_poll_timeout(void *arg) { (void)arg; }\n');
+    edit('src/rt/app.c', 'static void app_state(int state)', 'void app_state(int state)');
+    writeFileSync(join(root, 'src/rt/ui.c'), 'void app_state(int state) { (void)state; }\n');
+    expect(sites(ctx)).toBe(0);
+    expect(out.find((l) => l.includes('timer send on_poll_timeout'))).toMatch(
+      /jobs\.c:24: timer send on_poll_timeout → on_poll_timeout \(candidate\), on_poll_timeout \(candidate\)$/,
+    );
+    expect(out.find((l) => l.includes('app-cb send state_cb'))).toMatch(
+      /→ src\/rt\/app\.c:6 \(assign state_cb\) \?, app_state \(candidate\), app_state \(candidate\)$/,
+    );
+  });
+
+  it('prints errors in connections.jsonl to stderr and exits 1 (I4)', () => {
+    edit('.flowbook/connections.jsonl', '"handler":2', '"handlr":2');
+    expect(sites(ctx)).toBe(1);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toMatch(/\.flowbook\/connections\.jsonl:2: error: .*handlr/);
+    // The site lines are still printed; the timer rule is not loaded.
+    expect(out.some((l) => l.includes(' job send '))).toBe(true);
+    expect(out.some((l) => l.includes(' timer '))).toBe(false);
+    err.length = 0;
+    out.length = 0;
+    expect(sites(ctx, { json: true })).toBe(1);
+    expect(err[0]).toMatch(/connections\.jsonl:2: error:/);
+    expect(() => JSON.parse(out.join('\n'))).not.toThrow();
+    // The dropped rule's id is unknown; the error says why.
+    err.length = 0;
+    expect(sites(ctx, { rule: 'timer' })).toBe(1);
+    expect(err[0]).toMatch(/connections\.jsonl:2: error:/);
+    expect(err[1]).toContain('unknown rule "timer"');
+  });
+
+  it('--unpaired lists a send missing its receive site (M5)', () => {
+    edit('src/rt/jobs.c', 'case JOB_WRITE_CNF:', '');
+    sites(ctx, { unpaired: true });
+    expect(
+      out.some((l) =>
+        /jobs\.c:17: job send JOB_WRITE_CNF → write_done \? · no receive site for JOB_WRITE_CNF$/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('--json columns are 1-based (M7)', () => {
+    sites(ctx, { json: true });
+    const data = JSON.parse(out.join('\n')) as {
+      sites: { key?: string; role: string; reactors?: { line: number; column: number }[] }[];
+    };
+    const src = readFileSync(join(root, 'src/rt/jobs.c'), 'utf8').split('\n');
+    const read = data.sites.find((s) => s.role === 'send' && s.key === 'JOB_READ_CNF')!;
+    const [cse] = read.reactors!;
+    expect(src[cse!.line - 1]!.indexOf('JOB_READ_CNF') + 1).toBe(cse!.column);
+  });
+
+  it('warns about a skipped file on stderr (M2)', () => {
+    writeFileSync(
+      join(root, 'src/rt/big.c'),
+      `void big(void) { job_post(0, JOB_READ_CNF, 0); }\n${'int x;\n'.repeat(450_000)}`,
+    );
+    expect(sites(ctx)).toBe(0);
+    expect(err).toEqual([
+      expect.stringMatching(/^warning: skipped \S*src\/rt\/big\.c: larger than 2 MB \(3\.0 MB\)$/),
+    ]);
+    err.length = 0;
+    expect(check(ctx)).toBe(0);
+    expect(err).toEqual([expect.stringMatching(/^warning: skipped \S*src\/rt\/big\.c: /)]);
+  });
+
   it('prints nothing but returns 0 without a connections file', () => {
     rmSync(join(root, '.flowbook/connections.jsonl'));
     expect(sites(ctx)).toBe(0);

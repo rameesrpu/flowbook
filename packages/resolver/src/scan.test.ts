@@ -9,6 +9,14 @@ import {
   type RuleRecord,
 } from '@flowbook/core';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// Every file read of the scan goes through this pass-through spy, so tests can count reads.
+const { readSpy } = vi.hoisted(() => ({ readSpy: vi.fn() }));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  readSpy.mockImplementation(fs.readFileSync);
+  return { ...fs, readFileSync: readSpy };
+});
 import { listSourceFiles, readWorkspace } from './fs.js';
 import { Resolver } from './resolver.js';
 import {
@@ -149,6 +157,120 @@ describe('scanRoot', () => {
     spy.mockRestore();
   });
 
+  it('does not cache a file saved between its read and the cache write (I1)', () => {
+    const root = temp();
+    put(root, 'src/a.c', 'void a(void) { job_post(1); }');
+    const c = conns([rule('job', 'job_post')]);
+    const cache = createScanCache();
+    const real = resolver.scan.bind(resolver);
+    // Saves a new version of the file while the old text is being parsed.
+    const racing = vi.spyOn(resolver, 'scan').mockImplementationOnce((path, text, rules) => {
+      const result = real(path, text, rules);
+      put(root, 'src/a.c', 'void a(void) { job_post(1); job_post(2); }');
+      utimesSync(join(root, 'src/a.c'), new Date(), new Date(Date.now() + 5000));
+      return result;
+    });
+    expect(scanRoot(root, c, resolver, cache).get('src/a.c')!.sites).toHaveLength(1);
+    racing.mockRestore();
+    const spy = vi.spyOn(resolver, 'scan');
+    const next = scanRoot(root, c, resolver, cache);
+    expect(spy.mock.calls.map((x) => x[0])).toEqual(['src/a.c']);
+    expect(next.get('src/a.c')!.sites).toHaveLength(2);
+    spy.mockRestore();
+  });
+
+  it('does not re-read files the prefilter rejected while the handler set is unchanged (I2)', () => {
+    const root = temp();
+    const timer: RuleRecord = {
+      kind: 'rule',
+      id: 'timer',
+      title: 'T',
+      type: 'timer',
+      send: [{ call: 'timer_add', handler: 2 }],
+    };
+    put(root, 'src/a.c', 'void go(void) { timer_add(1, late, 0); }');
+    put(root, 'src/b.c', 'void late(void) {}');
+    for (let i = 0; i < 4; i++) put(root, `src/u${i}.c`, `void u${i}(void) {}`);
+    const c = conns([timer]);
+    const cache = createScanCache();
+    const reads = () =>
+      readSpy.mock.calls
+        .map((x) => String(x[0]))
+        .filter((p) => p.startsWith(root))
+        .map((p) => p.slice(root.length + 1));
+    readSpy.mockClear();
+    const first = scanRoot(root, c, resolver, cache);
+    expect([...first.keys()].sort()).toEqual(['src/a.c', 'src/b.c']);
+    expect(reads().filter((p) => p.includes('/u'))).toHaveLength(8); // both passes
+    readSpy.mockClear();
+    expect(scanRoot(root, c, resolver, cache)).toEqual(first);
+    expect(reads()).toEqual([]);
+    // A new handler name: the rejected files are read again.
+    put(root, 'src/a.c', 'void go(void) { timer_add(1, late, 0); timer_add(2, u1, 0); }');
+    utimesSync(join(root, 'src/a.c'), new Date(), new Date(Date.now() + 5000));
+    readSpy.mockClear();
+    const third = scanRoot(root, c, resolver, cache);
+    expect(
+      reads()
+        .filter((p) => p.includes('/u'))
+        .sort(),
+    ).toEqual(['src/u0.c', 'src/u1.c', 'src/u2.c', 'src/u3.c']);
+    expect([...third.keys()].sort()).toEqual(['src/a.c', 'src/b.c', 'src/u1.c']);
+  });
+
+  it('scanRootSliced pauses during long runs of cache hits (I2)', async () => {
+    const root = temp();
+    for (let i = 0; i < 45; i++) put(root, `src/f${i}.c`, `void f${i}(void) { job_post(1); }`);
+    const c = conns([rule('job', 'job_post')]);
+    const cache = createScanCache();
+    await scanRootSliced(root, c, resolver, cache, async () => {});
+    const pause = vi.fn(async () => {});
+    const spy = vi.spyOn(resolver, 'scan');
+    await scanRootSliced(root, c, resolver, cache, pause);
+    expect(spy).not.toHaveBeenCalled();
+    expect(pause).toHaveBeenCalledTimes(2);
+    spy.mockRestore();
+  });
+
+  it('skips and reports a file over 2 MB (M2)', () => {
+    const root = temp();
+    put(root, 'src/a.c', 'void a(void) { job_post(1); }');
+    put(root, 'src/big.c', `void big(void) { job_post(1); }\n${'int x;\n'.repeat(450_000)}`);
+    const spy = vi.spyOn(resolver, 'scan');
+    const skipped: string[] = [];
+    const scans = scanRoot(
+      root,
+      conns([rule('job', 'job_post')]),
+      resolver,
+      createScanCache(),
+      (p, r) => skipped.push(`${p}: ${r}`),
+    );
+    expect([...scans.keys()]).toEqual(['src/a.c']);
+    expect(spy.mock.calls.map((x) => x[0])).toEqual(['src/a.c']);
+    expect(skipped).toEqual(['src/big.c: larger than 2 MB (3.0 MB)']);
+    spy.mockRestore();
+  });
+
+  it('skips and reports a file whose parse throws, and scans the rest (M2)', () => {
+    const root = temp();
+    put(root, 'src/a.c', 'void a(void) { job_post(1); }');
+    put(root, 'src/b.c', 'void b(void) { job_post(2); }');
+    const real = resolver.scan.bind(resolver);
+    const spy = vi.spyOn(resolver, 'scan').mockImplementation((path, text, rules) => {
+      if (path === 'src/a.c') throw new Error('boom');
+      return real(path, text, rules);
+    });
+    const skipped: string[] = [];
+    const cache = createScanCache();
+    const scans = scanRoot(root, conns([rule('job', 'job_post')]), resolver, cache, (p, r) =>
+      skipped.push(`${p}: ${r}`),
+    );
+    expect([...scans.keys()]).toEqual(['src/b.c']);
+    expect(skipped).toEqual(['src/a.c: parse failed: boom']);
+    expect(cache.files.has('src/a.c')).toBe(false);
+    spy.mockRestore();
+  });
+
   it('skips a file that cannot be read', () => {
     const root = temp();
     put(root, 'src/a.c', 'void a(void) { job_post(1); }');
@@ -236,6 +358,15 @@ describe('scanSources', () => {
     expect(star.get('c.c')!.sites).toHaveLength(1);
     expect(star.get('d.c')!.sites).toHaveLength(1);
   });
+
+  it('scans a file a quantified class matches (M1)', () => {
+    const files = [
+      { path: 'a.c', text: 'void a(void) { FOO_CB(1); }' },
+      { path: 'b.c', text: 'void b(void) { other(); }' },
+    ];
+    const scans = scanSources(files, conns([rule('r', '[A-Z_]{2,100}_CB')]), resolver);
+    expect(scans.get('a.c')!.sites).toHaveLength(1);
+  });
 });
 
 describe('literalFragments', () => {
@@ -252,6 +383,16 @@ describe('literalFragments', () => {
     ['a|.*', null],
     ['(foo|bar)_x', null],
     ['\\wfoo', ['foo']],
+    // M1: quantifier bodies and escape payloads are not literal text.
+    ['[A-Z_]{2,100}_CB', ['_CB']],
+    ['x{2,100}', null],
+    ['(ab){1000}post', ['post']],
+    ['\\x41bcdef', ['bcdef']],
+    ['\\u0041bcdef', ['bcdef']],
+    ['\\p{Lu}abc', ['abc']],
+    ['\\k<name>abc', ['abc']],
+    ['\\123abc', ['abc']],
+    ['a{bc', null],
   ])('%s', (src, expected) => {
     expect(literalFragments(src)).toEqual(expected);
   });

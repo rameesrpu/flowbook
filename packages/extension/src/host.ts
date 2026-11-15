@@ -10,7 +10,14 @@ import {
   type ScanCache,
 } from '@flowbook/resolver';
 import * as vscode from 'vscode';
-import { loadRoot, locate, rootOfFlowbookFile, withScans, type RootState } from './model.js';
+import {
+  loadRoot,
+  locate,
+  rootOfFlowbookFile,
+  savedScanIsCurrent,
+  withScans,
+  type RootState,
+} from './model.js';
 
 const FLOWBOOK_GLOB = '**/.flowbook/{config.jsonl,connections.jsonl,flows/*.jsonl}';
 
@@ -26,8 +33,20 @@ export class Flowbook implements vscode.Disposable {
   private readonly problems = vscode.languages.createDiagnosticCollection('flowbook');
   /** One per root for the session; it invalidates itself when the rules change. */
   private readonly caches = new Map<string, ScanCache>();
-  /** The latest finished scan of each root, with the rules key (`rulesKeyOf`) it was made under. */
-  private readonly lastScans = new Map<string, { key: string; scans: Map<string, FileScan> }>();
+  /**
+   * The latest finished scan of each root, with the rules key (`rulesKeyOf`) it was made under
+   * and the value of `saveCount` when it began.
+   */
+  private readonly lastScans = new Map<
+    string,
+    { key: string; scans: Map<string, FileScan>; startedAt: number }
+  >();
+  /** Counts document saves; `saves` holds its value at each file's latest save, by fsPath. */
+  private saveCount = 0;
+  private readonly saves = new Map<string, number>();
+  private readonly onSave: vscode.Disposable;
+  /** Skipped-file messages already written to the log, so a rescan does not repeat them. */
+  private readonly skipsLogged = new Set<string>();
   /** Roots whose current state holds a finished scan made under its current rules. */
   private readonly ready = new Set<string>();
   /** Roots whose latest scan threw. */
@@ -39,10 +58,15 @@ export class Flowbook implements vscode.Disposable {
   constructor(
     readonly resolver: Resolver,
     private readonly log: vscode.OutputChannel,
-  ) {}
+  ) {
+    this.onSave = vscode.workspace.onDidSaveTextDocument((doc) => {
+      if (doc.uri.scheme === 'file') this.saves.set(doc.uri.fsPath, ++this.saveCount);
+    });
+  }
 
   dispose() {
     this.generation++;
+    this.onSave.dispose();
     this.changed.dispose();
     this.problems.dispose();
   }
@@ -115,9 +139,16 @@ export class Flowbook implements vscode.Disposable {
       let cache = this.caches.get(root);
       if (!cache) this.caches.set(root, (cache = createScanCache()));
       const started = Date.now();
+      const startedAt = this.saveCount;
+      const onSkip = (path: string, reason: string) => {
+        const line = `skipped ${join(root, path)}: ${reason}`;
+        if (this.skipsLogged.has(line)) return;
+        this.skipsLogged.add(line);
+        this.log.appendLine(line);
+      };
       let scans: Map<string, FileScan>;
       try {
-        scans = await scanRootSliced(root, connections, this.resolver, cache, pause);
+        scans = await scanRootSliced(root, connections, this.resolver, cache, pause, onSkip);
       } catch (e) {
         if (e instanceof Superseded || generation !== this.generation) return;
         this.log.appendLine(`scan of ${root} failed: ${(e as Error).stack ?? e}`);
@@ -137,7 +168,7 @@ export class Flowbook implements vscode.Disposable {
       this.failed.delete(root);
       try {
         this.roots.set(root, loadRoot(root, this.resolver, undefined, scans));
-        this.lastScans.set(root, { key: rulesKeyOf(connections), scans });
+        this.lastScans.set(root, { key: rulesKeyOf(connections), scans, startedAt });
         this.ready.add(root);
       } catch (e) {
         this.log.appendLine(`failed to load ${root}: ${(e as Error).stack ?? e}`);
@@ -162,6 +193,14 @@ export class Flowbook implements vscode.Disposable {
 
   get problemCollection(): vscode.DiagnosticCollection {
     return this.problems;
+  }
+
+  /**
+   * False when the file at `fsPath` was saved after the root's latest finished scan began: that
+   * scan may hold its old text, so its lenses must be computed from the document instead.
+   */
+  scanIsCurrent(root: string, fsPath: string): boolean {
+    return savedScanIsCurrent(this.saves.get(fsPath), this.lastScans.get(root)?.startedAt);
   }
 
   /** Root state and root-relative path for an absolute file path. */
