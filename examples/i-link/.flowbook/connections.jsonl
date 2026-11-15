@@ -1,0 +1,48 @@
+{"kind":"rule","id":"job","title":"Master job queue","type":"queue","context":"master thread","notes":"Jobs carry a type and a callback. `iolink_main` switches on `job->type`; every case except `PD_EVENT` and `EXIT` runs `job->callback`. The CM and ODE wrappers pass the type through a parameter, so their callers are matched too. `job->type = …` in `iolink_main.c` covers the jobs posted without the helper (PD event, exit) and also matches the resets to `IOLINK_JOB_NONE`.","send":[{"call":"iolink_post_job_with_type_and_callback","key":3,"handler":4},{"call":"init_and_post_job","key":2,"handler":3,"files":["src/src/iolink_cm.c"]},{"call":"ode_SMI_rw_req","key":1,"files":["src/src/iolink_ode.c"]},{"call":"ode_SMI_DeviceReadWrite_req","key":6,"files":["src/src/iolink_ode.c"]},{"assign":"type","as":"key","files":["src/src/iolink_main.c"]}],"receive":[{"case":"IOLINK_JOB_.*","files":["src/src/iolink_main.c"]}]}
+{"kind":"rule","id":"mbox","title":"Mailbox","type":"queue","notes":"The master has three mailboxes (`mbox` for submitted jobs, `mbox_avail` and `mbox_api_avail` as free-job pools). The handle is spelled `master->mbox` or `port->master->mbox`, so it cannot serve as a key; only the job mailbox is paired, by an anchored connection.","send":[{"call":"os_mbox_post"}],"receive":[{"call":"os_mbox_fetch"}]}
+{"kind":"rule","id":"dl-event","title":"DL thread event","type":"event","context":"DL thread","notes":"`dl_main` waits on `dl->event` and tests each flag. Limited to the stack; the sample application uses `os_event_set` for its own events.","send":[{"call":"os_event_set","key":2,"files":["src/src/**"]}],"receive":[{"test":"IOLINK_(DL|PL)_EVENT(_.*)?","files":["src/src/**"]}]}
+{"kind":"connection","id":"master-mbox","rule":"mbox","title":"Master job mailbox","context":"master thread","send":[{"file":"src/src/iolink_main.c","symbol":"iolink_post_job_with_type_and_callback"},{"file":"src/src/iolink_main.c","symbol":"iolink_post_job"},{"file":"src/src/iolink_main.c","symbol":"iolink_post_job_pd_event"},{"file":"src/src/iolink_main.c","symbol":"iolink_m_deinit"}],"receive":[{"file":"src/src/iolink_main.c","symbol":"iolink_main"}]}
+{"kind":"connection","id":"job.al-abort","rule":"job","key":"IOLINK_JOB_AL_ABORT","title":"AL abort"}
+{"kind":"connection","id":"job.al-event-rsp","rule":"job","key":"IOLINK_JOB_AL_EVENT_RSP","title":"AL event response"}
+{"kind":"connection","id":"job.al-read-cnf","rule":"job","key":"IOLINK_JOB_AL_READ_CNF","title":"AL read confirmation"}
+{"kind":"connection","id":"job.al-read-req","rule":"job","key":"IOLINK_JOB_AL_READ_REQ","title":"AL read request"}
+{"kind":"connection","id":"job.al-write-cnf","rule":"job","key":"IOLINK_JOB_AL_WRITE_CNF","title":"AL write confirmation"}
+{"kind":"connection","id":"job.al-write-req","rule":"job","key":"IOLINK_JOB_AL_WRITE_REQ","title":"AL write request"}
+{"kind":"connection","id":"job.dl-control-ind","rule":"job","key":"IOLINK_JOB_DL_CONTROL_IND","title":"DL control indication"}
+{"kind":"connection","id":"job.dl-event-ind","rule":"job","key":"IOLINK_JOB_DL_EVENT_IND","title":"DL event indication"}
+{"kind":"connection","id":"job.dl-isdu-trans-cnf","rule":"job","key":"IOLINK_JOB_DL_ISDU_TRANS_CNF","title":"DL ISDU transport confirmation"}
+{"kind":"connection","id":"job.dl-mode-ind","rule":"job","key":"IOLINK_JOB_DL_MODE_IND","title":"DL mode indication"}
+{"kind":"connection","id":"job.dl-readparam-cnf","rule":"job","key":"IOLINK_JOB_DL_READPARAM_CNF","title":"DL read parameter confirmation"}
+{"kind":"connection","id":"job.dl-read-cnf","rule":"job","key":"IOLINK_JOB_DL_READ_CNF","title":"DL read confirmation"}
+{"kind":"connection","id":"job.dl-writeparam-cnf","rule":"job","key":"IOLINK_JOB_DL_WRITEPARAM_CNF","title":"DL write parameter confirmation"}
+{"kind":"connection","id":"job.dl-write-cnf","rule":"job","key":"IOLINK_JOB_DL_WRITE_CNF","title":"DL write confirmation"}
+{"kind":"connection","id":"job.dl-write-devmode-cnf","rule":"job","key":"IOLINK_JOB_DL_WRITE_DEVMODE_CNF","title":"DL write device mode confirmation"}
+{"kind":"connection","id":"job.ds-change","rule":"job","key":"IOLINK_JOB_DS_CHANGE","title":"DS change"}
+{"kind":"connection","id":"job.ds-delete","rule":"job","key":"IOLINK_JOB_DS_DELETE","title":"DS delete"}
+{"kind":"connection","id":"job.ds-fault","rule":"job","key":"IOLINK_JOB_DS_FAULT","title":"DS fault"}
+{"kind":"connection","id":"job.ds-ready","rule":"job","key":"IOLINK_JOB_DS_READY","title":"DS ready"}
+{"kind":"connection","id":"job.ds-startup","rule":"job","key":"IOLINK_JOB_DS_STARTUP","title":"DS startup"}
+{"kind":"connection","id":"job.ds-upload","rule":"job","key":"IOLINK_JOB_DS_UPLOAD","title":"DS upload"}
+{"kind":"connection","id":"job.exit","rule":"job","key":"IOLINK_JOB_EXIT","title":"Exit"}
+{"kind":"connection","id":"job.od-start","rule":"job","key":"IOLINK_JOB_OD_START","title":"OD start"}
+{"kind":"connection","id":"job.od-stop","rule":"job","key":"IOLINK_JOB_OD_STOP","title":"OD stop"}
+{"kind":"connection","id":"job.pd-event","rule":"job","key":"IOLINK_JOB_PD_EVENT","title":"PD event"}
+{"kind":"connection","id":"job.smi-device-read","rule":"job","key":"IOLINK_JOB_SMI_DEVICE_READ","title":"SMI device read"}
+{"kind":"connection","id":"job.smi-device-write","rule":"job","key":"IOLINK_JOB_SMI_DEVICE_WRITE","title":"SMI device write"}
+{"kind":"connection","id":"job.smi-masterident","rule":"job","key":"IOLINK_JOB_SMI_MASTERIDENT","title":"SMI master identification"}
+{"kind":"connection","id":"job.smi-param-read","rule":"job","key":"IOLINK_JOB_SMI_PARAM_READ","title":"SMI parameter read"}
+{"kind":"connection","id":"job.smi-param-write","rule":"job","key":"IOLINK_JOB_SMI_PARAM_WRITE","title":"SMI parameter write"}
+{"kind":"connection","id":"job.smi-portconfiguration","rule":"job","key":"IOLINK_JOB_SMI_PORTCONFIGURATION","title":"SMI port configuration"}
+{"kind":"connection","id":"job.smi-portstatus","rule":"job","key":"IOLINK_JOB_SMI_PORTSTATUS","title":"SMI port status"}
+{"kind":"connection","id":"job.smi-readbackportconfiguration","rule":"job","key":"IOLINK_JOB_SMI_READBACKPORTCONFIGURATION","title":"SMI read back port configuration"}
+{"kind":"connection","id":"job.sm-operate-req","rule":"job","key":"IOLINK_JOB_SM_OPERATE_REQ","title":"SM operate request"}
+{"kind":"connection","id":"job.sm-port-mode-ind","rule":"job","key":"IOLINK_JOB_SM_PORT_MODE_IND","title":"SM port mode indication"}
+{"kind":"connection","id":"job.sm-set-port-cfg-req","rule":"job","key":"IOLINK_JOB_SM_SET_PORT_CFG_REQ","title":"SM set port config request"}
+{"kind":"connection","id":"dl-event.mdh","rule":"dl-event","key":"IOLINK_DL_EVENT_MDH","title":"Run DL mode handler"}
+{"kind":"connection","id":"dl-event.mh","rule":"dl-event","key":"IOLINK_DL_EVENT_MH","title":"Run message handler"}
+{"kind":"connection","id":"dl-event.reset","rule":"dl-event","key":"IOLINK_DL_EVENT_RESET","title":"DL reset"}
+{"kind":"connection","id":"dl-event.timeout","rule":"dl-event","key":"IOLINK_DL_EVENT_TIMEOUT","title":"DL timer timeout"}
+{"kind":"connection","id":"dl-event.rxerr","rule":"dl-event","key":"IOLINK_PL_EVENT_RXERR","title":"PL receive error"}
+{"kind":"connection","id":"dl-event.rxrdy","rule":"dl-event","key":"IOLINK_PL_EVENT_RXRDY","title":"PL data ready"}
+{"kind":"connection","id":"dl-event.txerr","rule":"dl-event","key":"IOLINK_PL_EVENT_TXERR","title":"PL transmit error"}
+{"kind":"connection","id":"dl-event.wurq","rule":"dl-event","key":"IOLINK_PL_EVENT_WURQ","title":"PL wake-up request"}

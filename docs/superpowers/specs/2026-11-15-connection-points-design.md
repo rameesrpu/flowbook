@@ -275,12 +275,17 @@ thread) → then ode_read_cnf_cb`. The parts are the reactor's enclosing functio
    `iolink_post_job_with_type_and_callback` has at least one reactor. A grep on 2026-11-15 found
    27 distinct job types at those calls and 39 distinct `case IOLINK_JOB_` labels; the scan's
    numbers are recorded in the example's README with the unpaired sites explained.
-4. On p-net with the example rules, every handler passed to `pf_scheduler_add` under `src/device`
-   and `src/common` resolves to a definition (17 distinct by grep), and every `fspm_cfg` callback
+4. On p-net with the example rules, every handler passed to `pf_scheduler_add` under `src/device`,
+   `src/common` and `src/drivers` resolves to a definition (17 distinct by grep; 12 without the drivers), and every `fspm_cfg` callback
    field (16 by grep) has an invoke site.
 5. A cold scan of p-net (about 59,000 lines) finishes in under 10 seconds on the development
    machine without freezing the editor; an unchanged rescan in under 1 second. These targets are
    the author's estimate and are to be measured, then adjusted in this document if wrong.
+   Measured on 2026-11-15 (Intel Core i3-8145U, Node 22, medians of three; details in
+   `examples/p-net/README.md`): `flowbook sites` as a cold process 1.2 s; first scan in one
+   process 1.0 s (29 of 117 files pass the prefilter); unchanged rescan 12 ms; rescanning the
+   largest file (5,681 lines) and rebuilding the index, as for an unsaved edit, 0.1 s. The
+   targets hold with a wide margin and are kept.
 6. The extension end-to-end test opens a fixture file and asserts one send lens, one reactor
    lens, and that `Go to Reactor` lands on the expected line.
 

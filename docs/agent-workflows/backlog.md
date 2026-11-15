@@ -103,11 +103,16 @@ Kick-off prompt for a new conversation:
   (bounded, skip `node_modules`, `.git`, build dirs) for files with the same basename and suggest
   them: `did you mean src/lua.c?`. Cache the file index per check run. CLI test.
 
-### C2. Lua example in CI
+### C2. Examples in CI
 
 - Add a CI job (or step) that runs `examples/lua/fetch.sh` and
   `pnpm flowbook check --strict --root examples/lua`. Cache the clone. Fails if the skill-written
   flows drift from Lua 5.4.7.
+- Do the same for `examples/i-link` and `examples/p-net` (`fetch.sh`, then
+  `pnpm flowbook check --strict --root examples/<name>`), and compare the summary lines of
+  `pnpm flowbook sites --root examples/<name>` with the ones recorded in each README, so a
+  change in matching or pairing shows up as a diff. Both clones are pinned to a commit; cache
+  them.
 
 ### C3. Second dogfooding round
 
@@ -183,3 +188,7 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
 
 - v0.1 rebuild — core, resolver, CLI, webview, extension, skill, Lua example, CI (`4310f43`).
 - D2. License: MIT (`LICENSE` at the root and in `packages/extension/` for vsce).
+- Connection points and the editor jump (design
+  `docs/superpowers/specs/2026-11-15-connection-points-design.md`): rules and connections in
+  `.flowbook/connections.jsonl`, `flowbook sites`, connection checks in `flowbook check`, editor
+  lenses and `Go to Reactor` / `Go to Sender`, examples `examples/i-link` and `examples/p-net`.

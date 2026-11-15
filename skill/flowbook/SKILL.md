@@ -24,14 +24,15 @@ Run it from the repository root (or anywhere below a directory containing `.flow
 anchor paths are relative to the directory that contains `.flowbook/`. If `flowbook` is not on PATH, ask the user where the
 Flowbook CLI is installed (e.g. `node /path/to/flowbook/packages/cli/dist/flowbook.js`).
 
-| Command                            | Use it to                                                          |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| `flowbook resolve <file>`          | list every definition in a file as a ready-to-paste `anchor`       |
-| `flowbook resolve <file> <symbol>` | check one anchor; suggests qualified names and overload `sig`s     |
-| `flowbook check`                   | validate schema, references and anchors (exit 1 on errors)         |
-| `flowbook stamp <flow-id>`         | record each node's code fingerprint + commit after you verified it |
-| `flowbook stale`                   | list nodes whose code changed since they were stamped              |
-| `flowbook sites [--rule <id>]`     | list send/receive sites found by the rules and what they pair to   |
+| Command                            | Use it to                                                           |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| `flowbook resolve <file>`          | list every definition in a file as a ready-to-paste `anchor`        |
+| `flowbook resolve <file> <symbol>` | check one anchor; suggests qualified names and overload `sig`s      |
+| `flowbook check`                   | validate schema, references and anchors (exit 1 on errors)          |
+| `flowbook stamp <flow-id>`         | record each node's code fingerprint + commit after you verified it  |
+| `flowbook stale`                   | list nodes whose code changed since they were stamped               |
+| `flowbook sites [--rule <id>]`     | list send/receive sites found by the rules and what they pair to    |
+| `flowbook sites --unpaired`        | only the sites with nothing on the other end (`--json` for scripts) |
 
 Never write `fp` or `verified` by hand — `stamp` owns them.
 
@@ -117,13 +118,40 @@ with **connections**, both in `.flowbook/connections.jsonl` (full reference in
 2. Write a `rule` line (matcher names are regular expressions matching the whole name;
    argument positions are 1-based).
 3. Run `flowbook sites --rule <id>`. Every send and receive site is listed with its reactors.
-   Fix the rule until exactly the right sites appear (too few: loosen the name or `files`;
-   too many: narrow it).
+   Fix the rule until exactly the right sites appear (too few: loosen the name or add a
+   matcher; too many: narrow the name or add `files`). On a large codebase, read the summary
+   line and `flowbook sites --unpaired` rather than the full list.
 4. Add a keyed `connection` for each key you verified, and an anchored one for a plain queue
    with no key. A reactor marked `?` is unconfirmed; a keyed connection confirms it.
-5. Run `flowbook check`. Errors name the record's line in `connections.jsonl`.
+5. Run `flowbook check`. Errors name the record's line in `connections.jsonl`. Its summary line
+   counts flows only, so no error lines means the connections are valid too.
+6. Explain what stays unpaired (in the rule's `notes` or the repository's docs): every
+   remaining unpaired site should have a reason.
 
-### Three shapes (from `fixtures/cpp-sample`)
+### Fitting rules to real code
+
+- **`files`** sits on a matcher, not on the rule: `{"call":"event_set","key":1,"files":["src/rt/**"]}`.
+  Globs are relative to the directory containing `.flowbook/`. Use it whenever a generic call
+  (an OS event, mailbox or timer API) is also used by sample applications or other modules for
+  their own purposes.
+- **Wrappers.** When a function forwards its own parameter as the key or handler, for example
+  `post_req(int type)` calling `job_post(&job, type, done)`, the site inside it shows the
+  parameter name (`type`) as its key and pairs with nothing. Add a second send matcher for the wrapper,
+  with the argument positions of the wrapper's own signature (`{"call":"post_req","key":1}`).
+  The site inside the wrapper stays unpaired; say so in the rule's `notes`.
+- **Any matcher on either side.** A rule may have several send and receive matchers of
+  different kinds. For example, a job posted by assigning its type (`job->type = JOB_EXIT;`
+  then a plain post) is a send matched with `{"assign":"type","as":"key","files":[...]}`.
+  Every assignment to that field matches, including resets such as `job->type = JOB_NONE`;
+  those show up as unpaired sends.
+- **A key is compared as text.** A key that is not an identifier is its source text without
+  whitespace, so `m->box` and `port->m->box` are different keys. Do not key a mailbox on its
+  handle unless it is spelled the same everywhere; use an anchored connection.
+- **A send that reaches only its handler** in a rule that also has receive matchers usually
+  means the dispatcher has no `case` for that key. Check the dispatcher before trusting it: a
+  keyed connection for that key fails `check` with "has no receive site".
+
+### Shapes (from `fixtures/cpp-sample`)
 
 **Keyed queue.** `job_post(&job, JOB_READ_CNF, read_done)` sends; `case JOB_READ_CNF:` in
 `rt_main` receives. The key is argument 2, the handler argument 3:
@@ -148,6 +176,23 @@ with **connections**, both in `.flowbook/connections.jsonl` (full reference in
 }
 ```
 
+**Event flag.** `event_set(EVT_SAVE)` sends; `if (flags & EVT_SAVE)` in the waiting task
+receives. A `test` matcher matches an identifier anywhere in an `if`, `while` or `?:` condition:
+
+```json
+{
+  "kind": "rule",
+  "id": "event",
+  "title": "Event flag",
+  "type": "event",
+  "send": [{ "call": "event_set", "key": 1 }],
+  "receive": [{ "test": "EVT_.*" }]
+}
+```
+
+`flowbook sites --rule event` prints
+`src/rt/jobs.c:21: event send EVT_SAVE → rt_main (test EVT_SAVE) ?`.
+
 **Callback field.** `cfg->state_cb(1)` sends; `.state_cb = app_state` or `app.data_cb = app_data`
 receives. The field name is the key and the assigned function the handler:
 
@@ -169,8 +214,17 @@ receives. The field name is the key and the assigned function the handler:
 {"kind":"connection","id":"main-box","rule":"mbox","title":"Main mailbox","send":[{"file":"src/rt/jobs.c","symbol":"job_post"}],"receive":[{"file":"src/rt/jobs.c","symbol":"rt_main"}]}
 ```
 
-Reading the output: `→ unpaired` means nothing reacts to that site (check the rule, or add a
-connection); `← 1 sender` is a receive site that something posts to.
+An anchored connection works per function: it pairs _every_ send site of the rule in the
+`send` functions with _every_ receive site in the `receive` functions. If one function posts to
+two different queues, anchoring it joins both to the same receivers; leave such sites unpaired
+and explain them instead of anchoring them.
+
+Reading the output: on a send line, `→ unpaired` means nothing reacts to it (check the rule, or
+add a connection); on a receive line it means nothing sends to it. `← 1 sender` is a receive
+site that something posts to. The summary `job: 2 send, 3 receive, 2 keys paired (1 confirmed),
+1 unpaired` counts keys (or sends, for rules without keys); a key is confirmed when all its
+reactors are. A handler named at the send site with one definition is confirmed without a
+record; reactors found by key need a keyed connection.
 
 ### Known limits
 
