@@ -1,0 +1,425 @@
+import {
+  CONNECTIONS_FILE,
+  type Anchor,
+  type ConnectionRecord,
+  type Connections,
+  type Diagnostic,
+  type Located,
+  type RuleRecord,
+} from '@flowbook/core';
+import { match } from './resolver.js';
+import type { FileScan, Site } from './sites.js';
+import type { SymbolInfo } from './symbols.js';
+
+/** A place in the code. Lines and columns are 0-based. */
+export interface Target {
+  file: string;
+  line: number;
+  column: number;
+  symbol?: string;
+}
+
+export interface Reactor extends Target {
+  /** key: a receive site with the same key. handler: named at the send site. registered: handler of a matching receive site. anchored: joined by an anchored connection. */
+  via: 'key' | 'handler' | 'registered' | 'anchored';
+  key?: string;
+  confirmed: boolean;
+}
+
+export interface Pairing {
+  send: Site;
+  /** Order: key, registered, anchored, handler. */
+  reactors: Reactor[];
+  /** Id of the covering connection. */
+  connection?: string;
+  /** Its title. */
+  title?: string;
+  /** Connection context, else rule context. */
+  context?: string;
+  /** Set when the send site's handler has several candidate definitions and no connection picked one. */
+  candidates?: number;
+}
+
+export interface ConnectionIndex {
+  /** Every site, in file, line and column order. */
+  sites: Site[];
+  /** One per send site, in file then line order. */
+  pairings: Pairing[];
+  /** Receive sites no send site reaches by key or anchor, in rule order, then file and line. */
+  unpairedReceives: Site[];
+  /** File CONNECTIONS_FILE, 1-based line of the record. */
+  diagnostics: Diagnostic[];
+}
+
+export interface RuleSummary {
+  rule: string;
+  send: number;
+  receive: number;
+  paired: number;
+  confirmed: number;
+  unpaired: number;
+  keyed: boolean;
+}
+
+/** A function definition in a scanned file. */
+interface Definition {
+  file: string;
+  info: SymbolInfo;
+}
+
+/** An anchored connection with its anchors resolved; unresolved anchors are dropped. */
+interface Anchored {
+  record: Located<ConnectionRecord>;
+  send: Definition[];
+  receive: Definition[];
+}
+
+/** Everything pairing a send site needs, computed once per index. */
+interface Context {
+  rules: Map<string, Located<RuleRecord>>;
+  definitions: Map<string, Definition[]>;
+  /** Receive sites by rule, then key. */
+  receivesByKey: Map<string, Map<string, Site[]>>;
+  receivesByRule: Map<string, Site[]>;
+  /** Keyed connections by rule, then key. */
+  keyed: Map<string, Map<string, Located<ConnectionRecord>>>;
+  anchored: Anchored[];
+}
+
+const leaf = (symbol: string) => symbol.slice(symbol.lastIndexOf(':') + 1);
+const anchorText = (a: Anchor) => `${a.file}#${a.symbol}${a.sig ?? ''}`;
+
+const definitionTarget = (d: Definition): Target => ({
+  file: d.file,
+  line: d.info.nameLine,
+  column: d.info.nameColumn,
+  symbol: d.info.symbol,
+});
+
+const siteTarget = (s: Site): Target => {
+  const t: Target = { file: s.file, line: s.line, column: s.column };
+  if (s.symbol !== undefined) t.symbol = s.symbol;
+  return t;
+};
+
+const sameDefinition = (a: Definition, b: Definition) =>
+  a.file === b.file && a.info.symbol === b.info.symbol && a.info.sig === b.info.sig;
+
+/** True when the site's enclosing function is `d`. */
+const inside = (s: Site, d: Definition) =>
+  s.file === d.file && s.symbol === d.info.symbol && s.sig === d.info.sig;
+
+const compareSites = (a: Site, b: Site) =>
+  a.file !== b.file ? (a.file < b.file ? -1 : 1) : a.line - b.line || a.column - b.column;
+
+function push<K, V>(map: Map<K, V[]>, key: K, value: V) {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
+
+/** Function definitions of all scans, by the last `::` segment of their symbol. */
+function collectDefinitions(scans: Map<string, FileScan>): Map<string, Definition[]> {
+  const out = new Map<string, Definition[]>();
+  for (const [file, scan] of scans)
+    for (const info of scan.symbols)
+      if (info.kind === 'function') push(out, leaf(info.symbol), { file, info });
+  return out;
+}
+
+/**
+ * Definitions a handler name named at a site in `file` refers to. One is a resolved handler;
+ * among several, a single `static` one in the same file wins; otherwise all are candidates.
+ */
+function resolveHandler(ctx: Context, name: string, file: string): Definition[] {
+  const all = ctx.definitions.get(leaf(name)) ?? [];
+  if (all.length <= 1) return all;
+  const local = all.filter((d) => d.file === file && d.info.isStatic);
+  return local.length === 1 ? local : all;
+}
+
+const isKeyedForm = (c: ConnectionRecord) =>
+  c.key !== undefined && c.send === undefined && c.receive === undefined;
+const isAnchoredForm = (c: ConnectionRecord) =>
+  c.key === undefined && !!c.send?.length && !!c.receive?.length;
+
+/** Resolves one anchor to a definition, or reports why it does not resolve. */
+function resolveAnchor(
+  anchor: Anchor,
+  scans: Map<string, FileScan>,
+  report: (message: string) => void,
+): Definition | undefined {
+  const scan = scans.get(anchor.file);
+  const r = scan ? match(anchor, scan.symbols) : undefined;
+  if (r?.status === 'ok') return { file: anchor.file, info: r.symbol };
+  if (r?.status === 'ambiguous') {
+    report(
+      `${anchorText(anchor)} is overloaded; add "sig" with one of: ${r.candidates.map((c) => c.sig).join(' | ')}`,
+    );
+  } else report(`no definition for ${anchorText(anchor)}`);
+  return undefined;
+}
+
+function buildContext(
+  connections: Connections,
+  scans: Map<string, FileScan>,
+  sites: Site[],
+  report: (record: Located<{ id: string }>, message: string) => void,
+): Context {
+  const rules = new Map(connections.rules.map((r) => [r.id, r]));
+  const receivesByKey = new Map<string, Map<string, Site[]>>();
+  const receivesByRule = new Map<string, Site[]>();
+  for (const s of sites) {
+    if (s.role !== 'receive') continue;
+    push(receivesByRule, s.rule, s);
+    if (s.key === undefined) continue;
+    if (!receivesByKey.has(s.rule)) receivesByKey.set(s.rule, new Map());
+    push(receivesByKey.get(s.rule)!, s.key, s);
+  }
+  const keyed = new Map<string, Map<string, Located<ConnectionRecord>>>();
+  const anchored: Anchored[] = [];
+  // Records with an unknown rule or a malformed form are reported by validateConnections.
+  for (const c of connections.connections) {
+    if (!rules.has(c.rule)) continue;
+    if (isKeyedForm(c)) {
+      if (!keyed.has(c.rule)) keyed.set(c.rule, new Map());
+      const byKey = keyed.get(c.rule)!;
+      if (!byKey.has(c.key!)) byKey.set(c.key!, c);
+    } else if (isAnchoredForm(c)) {
+      const resolve = (anchors: Anchor[]) =>
+        anchors.flatMap((a) => resolveAnchor(a, scans, (m) => report(c, m)) ?? []);
+      anchored.push({ record: c, send: resolve(c.send!), receive: resolve(c.receive!) });
+    }
+  }
+  return {
+    rules,
+    definitions: collectDefinitions(scans),
+    receivesByKey,
+    receivesByRule,
+    keyed,
+    anchored,
+  };
+}
+
+/** The keyed connection covering a site's rule and key, if any. */
+const keyedConnection = (ctx: Context, s: Site) =>
+  s.key === undefined ? undefined : ctx.keyed.get(s.rule)?.get(s.key);
+
+/** Pairing step 1: receive sites of the rule with the same key. */
+function keyReceives(ctx: Context, send: Site): Site[] {
+  if (send.key === undefined) return [];
+  return ctx.receivesByKey.get(send.rule)?.get(send.key) ?? [];
+}
+
+function keyReactors(receives: Site[], confirmed: boolean): Reactor[] {
+  return receives.map((r) => ({ ...siteTarget(r), via: 'key', key: r.key, confirmed }));
+}
+
+/** Pairing step 2: definitions of the handler named at the send site. */
+function handlerReactors(candidates: Definition[]): Reactor[] {
+  const confirmed = candidates.length === 1;
+  return candidates.map((d) => ({ ...definitionTarget(d), via: 'handler', confirmed }));
+}
+
+/** Pairing step 3: definitions of the handlers registered at the receive sites of step 1. */
+function registeredReactors(ctx: Context, receives: Site[], covered: boolean): Reactor[] {
+  return receives.flatMap((r) => {
+    if (r.handler === undefined) return [];
+    const defs = resolveHandler(ctx, r.handler, r.file);
+    const confirmed = covered && defs.length === 1;
+    return defs.map((d): Reactor => ({ ...definitionTarget(d), via: 'registered', confirmed }));
+  });
+}
+
+/** Anchored connections of the send site's rule whose `send` functions contain it. */
+const anchoredCovering = (ctx: Context, send: Site) =>
+  ctx.anchored.filter((a) => a.record.rule === send.rule && a.send.some((d) => inside(send, d)));
+
+/**
+ * Pairing step 4: receive sites inside the `receive` functions of covering anchored connections,
+ * and handler candidates those functions pick (`picked`: the handler reactors are replaced).
+ */
+function anchoredReactors(
+  ctx: Context,
+  send: Site,
+  covering: Anchored[],
+  candidates: Definition[],
+): { reactors: Reactor[]; receives: Site[]; picked: boolean } {
+  const reactors: Reactor[] = [];
+  const receives: Site[] = [];
+  let picked = false;
+  const rule = ctx.receivesByRule.get(send.rule) ?? [];
+  for (const a of covering) {
+    for (const d of a.receive) {
+      for (const r of rule.filter((s) => inside(s, d))) {
+        receives.push(r);
+        const reactor: Reactor = { ...siteTarget(r), via: 'anchored', confirmed: true };
+        if (r.key !== undefined) reactor.key = r.key;
+        reactors.push(reactor);
+      }
+      if (candidates.length > 1 && candidates.some((c) => sameDefinition(c, d))) {
+        picked = true;
+        reactors.push({ ...definitionTarget(d), via: 'anchored', confirmed: true });
+      }
+    }
+  }
+  return { reactors, receives, picked };
+}
+
+/** Pairs one send site; also returns the receive sites it reaches by key or anchor. */
+function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[] } {
+  const rule = ctx.rules.get(send.rule);
+  const keyedBy = keyedConnection(ctx, send);
+  const covering = anchoredCovering(ctx, send);
+  const candidates = send.handler === undefined ? [] : resolveHandler(ctx, send.handler, send.file);
+
+  const byKey = keyReceives(ctx, send);
+  const anchored = anchoredReactors(ctx, send, covering, candidates);
+  const reactors = [
+    ...keyReactors(byKey, keyedBy !== undefined),
+    ...registeredReactors(ctx, byKey, keyedBy !== undefined),
+    ...anchored.reactors,
+    ...(anchored.picked ? [] : handlerReactors(candidates)),
+  ];
+
+  const pairing: Pairing = { send, reactors };
+  const connection = keyedBy ?? covering[0]?.record;
+  if (connection) {
+    pairing.connection = connection.id;
+    pairing.title = connection.title;
+  }
+  const context = connection?.context ?? rule?.context;
+  if (context !== undefined) pairing.context = context;
+  if (candidates.length > 1 && !anchored.picked) pairing.candidates = candidates.length;
+  return { pairing, reached: [...byKey, ...anchored.receives] };
+}
+
+/** Warning: a rule with no site at all. */
+function checkRules(ctx: Context, sites: Site[], report: Report) {
+  const used = new Set(sites.map((s) => s.rule));
+  for (const r of ctx.rules.values())
+    if (!used.has(r.id)) report(r, `rule "${r.id}" matches no site`, 'warning');
+}
+
+/** Errors: a keyed connection whose key has no send site, or whose send sites have no reactor. */
+function checkKeyed(ctx: Context, pairings: Pairing[], report: Report) {
+  for (const [rule, byKey] of ctx.keyed) {
+    for (const [key, record] of byKey) {
+      const sends = pairings.filter((p) => p.send.rule === rule && p.send.key === key);
+      if (sends.length === 0) report(record, `no send site of rule "${rule}" has key "${key}"`);
+      else if (sends.every((p) => p.reactors.length === 0))
+        report(record, `key "${key}" of rule "${rule}" has no reactor`);
+    }
+  }
+}
+
+/**
+ * Errors: an anchored `send` function with no send site of the rule, and a `receive` function that
+ * holds no receive site of the rule and is no handler candidate of those send sites.
+ */
+function checkAnchored(ctx: Context, sites: Site[], report: Report) {
+  for (const a of ctx.anchored) {
+    const { rule } = a.record;
+    const sends = sites.filter((s) => s.rule === rule && s.role === 'send');
+    const covered = sends.filter((s) => a.send.some((d) => inside(s, d)));
+    for (const d of a.send) {
+      if (!sends.some((s) => inside(s, d)))
+        report(a.record, `${d.file}#${d.info.symbol} has no send site of rule "${rule}"`);
+    }
+    const receives = ctx.receivesByRule.get(rule) ?? [];
+    const candidates = covered.flatMap((s) =>
+      s.handler === undefined ? [] : resolveHandler(ctx, s.handler, s.file),
+    );
+    for (const d of a.receive) {
+      if (receives.some((s) => inside(s, d))) continue;
+      if (candidates.some((c) => sameDefinition(c, d))) continue;
+      report(
+        a.record,
+        `${d.file}#${d.info.symbol} has no receive site of rule "${rule}" and is not a handler candidate of its send sites`,
+      );
+    }
+  }
+}
+
+type Report = (
+  record: Located<{ id: string }>,
+  message: string,
+  severity?: Diagnostic['severity'],
+) => void;
+
+/** Joins send sites to their reactors (spec: Pairing) and checks the connection records. */
+export function buildConnectionIndex(
+  connections: Connections,
+  scans: Map<string, FileScan>,
+): ConnectionIndex {
+  const diagnostics: Diagnostic[] = [];
+  const report: Report = (record, message, severity = 'error') =>
+    diagnostics.push({
+      severity,
+      file: CONNECTIONS_FILE,
+      line: record.line,
+      id: record.id,
+      message,
+    });
+
+  const sites = [...scans.values()].flatMap((s) => s.sites).sort(compareSites);
+  const ctx = buildContext(connections, scans, sites, report);
+
+  const pairings: Pairing[] = [];
+  const reached = new Set<Site>();
+  for (const send of sites) {
+    if (send.role !== 'send') continue;
+    const r = pairSend(ctx, send);
+    pairings.push(r.pairing);
+    for (const s of r.reached) reached.add(s);
+  }
+  const ruleOrder = new Map(connections.rules.map((r, i) => [r.id, i]));
+  const unpairedReceives = sites
+    .filter((s) => s.role === 'receive' && !reached.has(s))
+    .sort((a, b) => ruleOrder.get(a.rule)! - ruleOrder.get(b.rule)! || compareSites(a, b));
+
+  checkRules(ctx, sites, report);
+  checkKeyed(ctx, pairings, report);
+  checkAnchored(ctx, sites, report);
+  // Stable: diagnostics of one record keep the order they were found in.
+  diagnostics.sort((a, b) => a.line! - b.line!);
+  return { sites, pairings, unpairedReceives, diagnostics };
+}
+
+/** Send sites whose reactors include this file and line. */
+export function sendersOf(index: ConnectionIndex, target: { file: string; line: number }): Site[] {
+  return index.pairings
+    .filter((p) => p.reactors.some((r) => r.file === target.file && r.line === target.line))
+    .map((p) => p.send);
+}
+
+/**
+ * Counts per rule. A pairing unit is a key when the send site has one, otherwise the send site
+ * itself; `paired` counts units with a reactor, `confirmed` those whose reactors are all confirmed.
+ */
+export function ruleSummaries(index: ConnectionIndex, connections: Connections): RuleSummary[] {
+  return connections.rules.map((rule) => {
+    const pairings = index.pairings.filter((p) => p.send.rule === rule.id);
+    const units = new Map<string | Site, Pairing[]>();
+    for (const p of pairings) push(units, p.send.key ?? p.send, p);
+    let paired = 0;
+    let confirmed = 0;
+    for (const unit of units.values()) {
+      const reactors = unit.flatMap((p) => p.reactors);
+      if (reactors.length === 0) continue;
+      paired++;
+      if (reactors.every((r) => r.confirmed)) confirmed++;
+    }
+    const silentSends = pairings.filter((p) => p.reactors.length === 0).length;
+    const silentReceives = index.unpairedReceives.filter((s) => s.rule === rule.id).length;
+    return {
+      rule: rule.id,
+      send: pairings.length,
+      receive: index.sites.filter((s) => s.rule === rule.id && s.role === 'receive').length,
+      paired,
+      confirmed,
+      unpaired: silentSends + silentReceives,
+      keyed: pairings.some((p) => p.send.key !== undefined),
+    };
+  });
+}

@@ -5,3 +5,4 @@ export * from './fs.js';
 export * from './git.js';
 export * from './sites.js';
 export * from './scan.js';
+export * from './pairing.js';
