@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { normalizeSig, type Anchor } from '@flowbook/core';
+import { normalizeSig, type Anchor, type RuleRecord } from '@flowbook/core';
 import { Language, Parser } from 'web-tree-sitter';
+import { collectSites, type FileScan } from './sites.js';
 import { collectSymbols, type SymbolInfo } from './symbols.js';
 
 export type Resolution =
@@ -60,6 +61,19 @@ export class Resolver {
     if (!tree) return [];
     try {
       return collectSymbols(tree);
+    } finally {
+      tree.delete();
+    }
+  }
+
+  /** Symbols and connection sites of one file from a single parse. No rules gives no sites. */
+  scan(path: string, text: string, rules: RuleRecord[]): FileScan {
+    const parser = C_EXTENSIONS.test(path) ? this.cParser : this.cppParser;
+    const tree = parser.parse(text);
+    if (!tree) return { symbols: [], sites: [] };
+    try {
+      const symbols = collectSymbols(tree);
+      return { symbols, sites: collectSites(tree, path, rules, symbols) };
     } finally {
       tree.delete();
     }
