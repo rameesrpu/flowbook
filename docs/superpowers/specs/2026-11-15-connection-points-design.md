@@ -220,7 +220,8 @@ rule that has no receive matchers.
   feedback loop for writing rules, as `resolve` is for anchors. Exit code 0.
 - `flowbook check` also validates `connections.jsonl`. Errors: schema problems, an invalid
   regular expression, a connection naming an unknown rule, a connection that is neither form or
-  both, a keyed connection whose key has no send site or no reactor, an anchor that does not
+  both, a keyed connection whose key has no send site, a keyed connection whose key has no
+  receive site when its rule has receive matchers (or no reactor when it has none), an anchor that does not
   resolve, an anchored `send` function with no send site of the rule, an anchored `receive`
   function that is neither a receive site's function nor a handler candidate (see Pairing).
   Warning: a rule that matches no site.

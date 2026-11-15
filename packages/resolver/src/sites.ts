@@ -62,19 +62,23 @@ const nameOf = (m: Matcher): string =>
 
 const compact = (node: Node) => node.text.replace(/\s+/g, '');
 
+/** The matcher's regular expression, or undefined when invalid (core reports that error). */
+export function compileName(name: string): RegExp | undefined {
+  try {
+    return matcherRegex(name);
+  } catch {
+    return undefined;
+  }
+}
+
 function compile(rules: RuleRecord[], file: string): Compiled[] {
   const out: Compiled[] = [];
   for (const rule of rules) {
     for (const role of ['send', 'receive'] as const) {
       for (const matcher of rule[role] ?? []) {
         if (!matchesAny(file, matcher.files)) continue;
-        out.push({
-          rule: rule.id,
-          role,
-          kind: kindOf(matcher),
-          re: matcherRegex(nameOf(matcher)),
-          matcher,
-        });
+        const re = compileName(nameOf(matcher));
+        if (re) out.push({ rule: rule.id, role, kind: kindOf(matcher), re, matcher });
       }
     }
   }

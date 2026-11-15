@@ -3,10 +3,16 @@ import { join, relative, resolve as resolvePath } from 'node:path';
 import type { Anchor } from '@flowbook/core';
 import {
   anchorDiagnostics,
+  buildConnectionIndex,
   checkAnchors,
   headCommitFor,
   readWorkspace,
+  ruleSummaries,
+  scanRoot,
   sourceReader,
+  type ConnectionIndex,
+  type Pairing,
+  type Site,
   type Resolver,
   type SymbolInfo,
 } from '@flowbook/resolver';
@@ -21,9 +27,14 @@ export interface Context {
 export function check(ctx: Context, opts: { strict?: boolean; json?: boolean } = {}): number {
   const ws = readWorkspace(ctx.root);
   const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver);
+  const index =
+    ws.connections.rules.length > 0
+      ? buildConnectionIndex(ws.connections, scanRoot(ctx.root, ws.connections, ctx.resolver))
+      : undefined;
   const diagnostics = sortDiagnostics([
     ...ws.diagnostics,
     ...anchorDiagnostics(statuses, opts.strict),
+    ...(index?.diagnostics ?? []),
   ]);
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   if (opts.json) {
@@ -176,4 +187,97 @@ export function stale(ctx: Context, opts: { json?: boolean } = {}): number {
     }
   }
   return rows.length > 0 ? 1 : 0;
+}
+
+const samePlace = (a: { file: string; line: number; column: number }, b: typeof a) =>
+  a.file === b.file && a.line === b.line && a.column === b.column;
+
+const spot = (t: { file: string; line: number; symbol?: string }) =>
+  t.symbol ?? `${t.file}:${t.line + 1}`;
+
+/** Pairings whose reactors include this receive site itself (by key or anchor). */
+const sendersOfSite = (index: ConnectionIndex, site: Site) =>
+  index.pairings.filter((p) =>
+    p.reactors.some((r) => r.via !== 'handler' && r.via !== 'registered' && samePlace(r, site)),
+  );
+
+function reactorText(index: ConnectionIndex, p: Pairing): string {
+  return p.reactors
+    .map((r) => {
+      const at = index.sites.find((s) => s.role === 'receive' && samePlace(s, r));
+      const how = r.via === 'key' && r.key !== undefined && at ? ` (${at.matcher} ${r.key})` : '';
+      return `${spot(r)}${how}${r.confirmed ? '' : ' ?'}`;
+    })
+    .join(', ');
+}
+
+function siteLine(index: ConnectionIndex, site: Site, unpaired: boolean): string {
+  const what = `${site.rule} ${site.role} ${site.key ?? site.handler ?? ''}`.trimEnd();
+  const head = `${site.file}:${site.line + 1}: ${what}`;
+  if (site.role === 'send') {
+    const p = index.pairings.find((x) => x.send === site)!;
+    return `${head} → ${p.reactors.length ? reactorText(index, p) : 'unpaired'}`;
+  }
+  if (unpaired) return `${head} → unpaired`;
+  const n = sendersOfSite(index, site).length;
+  return `${head} ← ${n} sender${n === 1 ? '' : 's'}`;
+}
+
+/** Lists every connection site with what it pairs to, then one summary line per rule. */
+export function sites(
+  ctx: Context,
+  opts: { rule?: string; unpaired?: boolean; json?: boolean } = {},
+): number {
+  const ws = readWorkspace(ctx.root);
+  const { rules } = ws.connections;
+  if (opts.rule !== undefined && !rules.some((r) => r.id === opts.rule)) {
+    ctx.io.err(`error: unknown rule "${opts.rule}"; known: ${rules.map((r) => r.id).join(', ')}`);
+    return 1;
+  }
+  const index = buildConnectionIndex(
+    ws.connections,
+    scanRoot(ctx.root, ws.connections, ctx.resolver),
+  );
+  const silent = new Set(index.unpairedReceives);
+  const isUnpaired = (s: Site) =>
+    s.role === 'send'
+      ? index.pairings.find((p) => p.send === s)!.reactors.length === 0
+      : silent.has(s);
+  const shown = index.sites.filter(
+    (s) => (opts.rule === undefined || s.rule === opts.rule) && (!opts.unpaired || isUnpaired(s)),
+  );
+  const summaries = ruleSummaries(index, ws.connections).filter(
+    (r) => opts.rule === undefined || r.rule === opts.rule,
+  );
+  if (opts.json) {
+    const rows = shown.map((s) => {
+      const row = {
+        file: s.file,
+        line: s.line + 1,
+        rule: s.rule,
+        role: s.role,
+        key: s.key,
+        handler: s.handler,
+        symbol: s.symbol,
+      };
+      if (s.role === 'send') {
+        const p = index.pairings.find((x) => x.send === s)!;
+        return { ...row, reactors: p.reactors.map((r) => ({ ...r, line: r.line + 1 })) };
+      }
+      return {
+        ...row,
+        senders: sendersOfSite(index, s).map((p) => ({ file: p.send.file, line: p.send.line + 1 })),
+      };
+    });
+    ctx.io.out(JSON.stringify({ sites: rows, rules: summaries }, null, 2));
+    return 0;
+  }
+  for (const s of shown) ctx.io.out(siteLine(index, s, silent.has(s)));
+  for (const r of summaries) {
+    ctx.io.out(
+      `${r.rule}: ${r.send} send, ${r.receive} receive, ${r.paired} ${r.keyed ? 'keys' : 'sends'} paired ` +
+        `(${r.confirmed} confirmed), ${r.unpaired} unpaired`,
+    );
+  }
+  return 0;
 }

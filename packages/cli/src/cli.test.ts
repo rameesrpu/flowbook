@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Resolver } from '@flowbook/resolver';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { check, resolve, stale, stamp, type Context } from './commands.js';
+import { check, resolve, sites, stale, stamp, type Context } from './commands.js';
 
 const fixture = fileURLToPath(new URL('../../../fixtures/cpp-sample', import.meta.url));
 
@@ -122,5 +122,108 @@ describe('resolve', () => {
   it('suggests qualified names', () => {
     expect(resolve(ctx, join(root, 'src/net/event_loop.cpp'), 'run', undefined)).toBe(1);
     expect(err[1]).toMatch(/did you mean: 13 {2}function {2}\{.*"net::EventLoop::run"\}/);
+  });
+});
+
+describe('sites', () => {
+  it('prints a summary line per rule', () => {
+    expect(sites(ctx)).toBe(0);
+    expect(out.slice(-5)).toEqual([
+      'job: 2 send, 3 receive, 2 keys paired (1 confirmed), 1 unpaired',
+      'timer: 1 send, 0 receive, 1 sends paired (1 confirmed), 0 unpaired',
+      'event: 1 send, 1 receive, 1 keys paired (0 confirmed), 0 unpaired',
+      'app-cb: 1 send, 2 receive, 1 keys paired (0 confirmed), 1 unpaired',
+      'mbox: 1 send, 1 receive, 1 sends paired (1 confirmed), 0 unpaired',
+    ]);
+  });
+
+  it('shows reactors of a send site', () => {
+    sites(ctx);
+    expect(
+      out.some((l) =>
+        /jobs\.c:\d+: job send JOB_READ_CNF → rt_main \(case JOB_READ_CNF\), read_done$/.test(l),
+      ),
+    ).toBe(true);
+  });
+
+  it('marks unconfirmed reactors', () => {
+    sites(ctx);
+    expect(out.find((l) => l.includes('JOB_WRITE_CNF → '))).toContain(
+      'rt_main (case JOB_WRITE_CNF) ?',
+    );
+  });
+
+  it('--unpaired lists only unpaired sites', () => {
+    sites(ctx, { unpaired: true });
+    const lines = out.filter((l) => /^\S+:\d+: /.test(l));
+    expect(lines).toHaveLength(2);
+    expect(lines.some((l) => /jobs\.c:\d+: job receive JOB_TICK → unpaired$/.test(l))).toBe(true);
+    expect(lines.some((l) => /app\.c:\d+: app-cb receive data_cb → unpaired$/.test(l))).toBe(true);
+  });
+
+  it('--rule filters and rejects an unknown rule', () => {
+    expect(sites(ctx, { rule: 'timer' })).toBe(0);
+    expect(out.filter((l) => /^\S+:\d+: /.test(l)).every((l) => l.includes(' timer '))).toBe(true);
+    out.length = 0;
+    expect(sites(ctx, { rule: 'nope' })).toBe(1);
+    expect(err.join('\n')).toContain('unknown rule');
+  });
+
+  it('--json is parseable and 1-based', () => {
+    expect(sites(ctx, { json: true })).toBe(0);
+    const data = JSON.parse(out.join('\n')) as {
+      sites: { file: string; line: number; rule: string; role: string; key?: string }[];
+      rules: { rule: string }[];
+    };
+    expect(data.rules.map((r) => r.rule)).toEqual(['job', 'timer', 'event', 'app-cb', 'mbox']);
+    const src = readFileSync(join(root, 'src/rt/jobs.c'), 'utf8').split('\n');
+    const tick = data.sites.find((s) => s.key === 'JOB_TICK')!;
+    expect(src[tick.line - 1]).toContain('case JOB_TICK');
+  });
+
+  it('prints nothing but returns 0 without a connections file', () => {
+    rmSync(join(root, '.flowbook/connections.jsonl'));
+    expect(sites(ctx)).toBe(0);
+    expect(out).toEqual([]);
+    expect(err).toEqual([]);
+  });
+});
+
+describe('check with connections', () => {
+  it('stays clean on the fixture', () => {
+    expect(check(ctx)).toBe(0);
+    expect(out.at(-1)).toBe('2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped)');
+  });
+
+  it('is unchanged when connections.jsonl is deleted', () => {
+    rmSync(join(root, '.flowbook/connections.jsonl'));
+    expect(check(ctx)).toBe(0);
+    expect(out.at(-1)).toBe('2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped)');
+  });
+
+  it('fails when a confirmed key loses its case', () => {
+    edit('src/rt/jobs.c', 'case JOB_READ_CNF:', '');
+    expect(check(ctx)).toBe(1);
+    const text = out.join('\n');
+    expect(text).toContain('connections.jsonl:6: error:');
+    expect(text).toContain('has no receive site');
+  });
+
+  it('fails on an invalid regular expression', () => {
+    edit('.flowbook/connections.jsonl', '"JOB_.*"', '"JOB_("');
+    expect(check(ctx)).toBe(1);
+    expect(out.join('\n')).toMatch(/connections\.jsonl:1: error:/);
+  });
+
+  it('warns about a rule that matches nothing', () => {
+    const path = join(root, '.flowbook/connections.jsonl');
+    const text = readFileSync(path, 'utf8').replace(/\n*$/, '\n');
+    writeFileSync(
+      path,
+      text +
+        '{"kind":"rule","id":"ghost","title":"Ghost","type":"queue","send":[{"call":"nope_fn","handler":1}]}\n',
+    );
+    expect(check(ctx)).toBe(0);
+    expect(out.join('\n')).toMatch(/connections\.jsonl:\d+: warning: rule "ghost" matches no site/);
   });
 });

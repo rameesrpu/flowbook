@@ -161,6 +161,16 @@ describe('scanRoot', () => {
 });
 
 describe('scanSources', () => {
+  it('ignores a matcher with an invalid regular expression', () => {
+    const c = conns([rule('bad', 'foo('), rule('ok', 'bar')]);
+    const scans = scanSources(
+      [{ path: 'a.c', text: 'void f(void) { foo(1); bar(2); }' }],
+      c,
+      resolver,
+    );
+    expect(scans.get('a.c')!.sites.map((x) => x.rule)).toEqual(['ok']);
+  });
+
   it('includes a file that only defines a handler', () => {
     const c = conns([
       {

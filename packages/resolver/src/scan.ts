@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { type Connections, type Matcher } from '@flowbook/core';
 import { listSourceFiles } from './fs.js';
 import type { Resolver } from './resolver.js';
-import type { FileScan } from './sites.js';
+import { compileName, type FileScan } from './sites.js';
 
 export interface SourceText {
   /** Root-relative POSIX path. */
@@ -132,6 +132,7 @@ function ruleFragments(connections: Connections): string[] | null {
   const all: string[] = [];
   for (const rule of connections.rules) {
     for (const m of [...rule.send, ...(rule.receive ?? [])]) {
+      if (!compileName(nameOf(m))) continue;
       const f = literalFragments(nameOf(m));
       if (f === null) return null;
       all.push(...f);

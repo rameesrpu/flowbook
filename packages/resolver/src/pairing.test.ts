@@ -239,15 +239,31 @@ describe('buildConnectionIndex on inline sources', () => {
   });
 
   it('errors on a keyed connection whose key has no reactor', () => {
-    const idx = build(
-      [jobRule, { kind: 'connection', id: 'k', rule: 'jb', title: 'K', key: 'J_B' }],
-      {
-        'a.c':
-          'void post(int);\nvoid s(void) { post(J_B); }\nvoid r(int t) { switch (t) { case J_A: break; } }\n',
-      },
-    );
+    const rule: RuleRecord = {
+      kind: 'rule',
+      id: 'hj',
+      title: 'Handler job',
+      type: 'queue',
+      send: [{ call: 'post', key: 1, handler: 2 }],
+    };
+    const idx = build([rule, { kind: 'connection', id: 'k', rule: 'hj', title: 'K', key: 'J_B' }], {
+      'a.c': 'void post(int, int);\nvoid s(void) { post(J_B, 0); }\n',
+    });
     expect(idx.diagnostics).toHaveLength(1);
     expect(idx.diagnostics[0]!.message).toContain('no reactor');
+  });
+
+  it('errors on a keyed connection whose key has no receive site, and does not confirm it', () => {
+    const rule: RuleRecord = { ...jobRule, send: [{ call: 'post', key: 1, handler: 2 }] };
+    const idx = build([rule, { kind: 'connection', id: 'k', rule: 'jb', title: 'K', key: 'J_B' }], {
+      'a.c':
+        'void post(int, void (*)(void));\nvoid h(void) {}\nvoid s(void) { post(J_B, h); }\nvoid r(int t) { switch (t) { case J_A: break; } }\n',
+    });
+    expect(idx.diagnostics).toHaveLength(1);
+    expect(idx.diagnostics[0]!.message).toBe(
+      'connection "k": key "J_B" has no receive site for rule "jb"',
+    );
+    expect(describeReactors(pairingOf(idx, 's'))).toEqual(['handler h - true']);
   });
 
   it('pairs an anchored connection without diagnostics when both functions hold sites', () => {

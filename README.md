@@ -58,6 +58,7 @@ Windows: create `flowbook.cmd` in a folder on your `PATH`:
 | `flowbook check [--strict]`        | validate schema, references and anchors (exit 1 on errors)    |
 | `flowbook stamp <flow-id>\|--all`  | record each node's code fingerprint + the verified git commit |
 | `flowbook stale`                   | list nodes whose code changed since they were stamped         |
+| `flowbook sites [--rule <id>]`     | list send/receive connection sites and what they pair to      |
 
 All commands accept `--root <dir>`; by default the nearest parent directory containing
 `.flowbook/` is used.
@@ -111,6 +112,7 @@ after installing the extension.
 .flowbook/
   config.jsonl          optional: named components (path globs → groups)
   flows/<flow-id>.jsonl one scenario per file: a flow record, nodes, steps, blocks
+  connections.jsonl     optional: rules and connections for queues, events, timers, callbacks
 ```
 
 Full reference: [skill/flowbook/references/schema.md](skill/flowbook/references/schema.md). JSON
@@ -125,7 +127,7 @@ See [CLAUDE.md](CLAUDE.md) for the package layout, design rules and the full com
 | -------------------- | --------------------------------------------------------- |
 | `packages/core`      | Schema, JSONL parsing, validation, grouping               |
 | `packages/resolver`  | Tree-sitter C/C++ symbol resolution and body fingerprints |
-| `packages/cli`       | `flowbook check / resolve / stamp / stale`                |
+| `packages/cli`       | `flowbook check / resolve / stamp / stale / sites`        |
 | `packages/webview`   | React Flow + ELK flowchart and sequence views             |
 | `packages/extension` | VS Code extension host                                    |
 | `skill/flowbook`     | Agent skill for authoring flows                           |

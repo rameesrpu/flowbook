@@ -206,6 +206,10 @@ function buildContext(
 const keyedConnection = (ctx: Context, s: Site) =>
   s.key === undefined ? undefined : ctx.keyed.get(s.rule)?.get(s.key);
 
+/** True when the connection's rule has receive matchers but no receive site has the key. */
+const lacksReceive = (ctx: Context, c: Located<ConnectionRecord>) =>
+  !!ctx.rules.get(c.rule)?.receive?.length && !ctx.receivesByKey.get(c.rule)?.has(c.key!);
+
 /** Pairing step 1: receive sites of the rule with the same key. */
 function keyReceives(ctx: Context, send: Site): Site[] {
   if (send.key === undefined) return [];
@@ -285,14 +289,16 @@ function mergeReactors(reactors: Reactor[]): Reactor[] {
 function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[] } {
   const rule = ctx.rules.get(send.rule);
   const keyedBy = keyedConnection(ctx, send);
+  // A keyed connection confirms only while its rule's receive sites include the key.
+  const confirms = keyedBy !== undefined && !lacksReceive(ctx, keyedBy);
   const covering = anchoredCovering(ctx, send);
   const candidates = send.handler === undefined ? [] : resolveHandler(ctx, send.handler, send.file);
 
   const byKey = keyReceives(ctx, send);
   const anchored = anchoredReactors(ctx, send, covering, candidates);
   const reactors = mergeReactors([
-    ...keyReactors(byKey, keyedBy !== undefined),
-    ...registeredReactors(ctx, byKey, keyedBy !== undefined),
+    ...keyReactors(byKey, confirms),
+    ...registeredReactors(ctx, byKey, confirms),
     ...anchored.reactors,
     ...(anchored.picked ? [] : handlerReactors(candidates)),
   ]);
@@ -323,6 +329,11 @@ function checkKeyed(ctx: Context, pairings: Pairing[], report: Report) {
     for (const [key, record] of byKey) {
       const sends = pairings.filter((p) => p.send.rule === rule && p.send.key === key);
       if (sends.length === 0) report(record, `no send site of rule "${rule}" has key "${key}"`);
+      else if (lacksReceive(ctx, record))
+        report(
+          record,
+          `connection "${record.id}": key "${key}" has no receive site for rule "${rule}"`,
+        );
       else if (sends.every((p) => p.reactors.length === 0))
         report(record, `key "${key}" of rule "${rule}" has no reactor`);
     }
