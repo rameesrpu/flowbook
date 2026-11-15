@@ -165,6 +165,16 @@ const boxRule: RuleRecord = {
   receive: [{ call: 'get' }],
 };
 const caller = 'void arm(void (*f)(void));\nvoid go(void) { arm(h); }\n';
+const boxSource =
+  'void put(int);\nint get(void);\nvoid s(void) { put(1); }\nvoid r(void) { get(); }\nvoid other(void) {}\n';
+const anchoredBox = (send: string, receive: string): ConnectionRecord => ({
+  kind: 'connection',
+  id: 'ab',
+  rule: 'bx',
+  title: 'AB',
+  send: [{ file: 'a.c', symbol: send }],
+  receive: [{ file: 'a.c', symbol: receive }],
+});
 
 describe('buildConnectionIndex on inline sources', () => {
   it('prefers a static handler in the same file', () => {
@@ -240,17 +250,6 @@ describe('buildConnectionIndex on inline sources', () => {
     expect(idx.diagnostics[0]!.message).toContain('no reactor');
   });
 
-  const boxSource =
-    'void put(int);\nint get(void);\nvoid s(void) { put(1); }\nvoid r(void) { get(); }\nvoid other(void) {}\n';
-  const anchoredBox = (send: string, receive: string): ConnectionRecord => ({
-    kind: 'connection',
-    id: 'ab',
-    rule: 'bx',
-    title: 'AB',
-    send: [{ file: 'a.c', symbol: send }],
-    receive: [{ file: 'a.c', symbol: receive }],
-  });
-
   it('pairs an anchored connection without diagnostics when both functions hold sites', () => {
     const idx = build([boxRule, anchoredBox('s', 'r')], { 'a.c': boxSource });
     expect(describeReactors(pairingOf(idx, 's'))).toEqual(['anchored r - true']);
@@ -311,5 +310,87 @@ describe('buildConnectionIndex on inline sources', () => {
       ['ab', 4, CONNECTIONS_FILE],
       ['ab', 4, CONNECTIONS_FILE],
     ]);
+  });
+});
+
+const slotRule: RuleRecord = {
+  kind: 'rule',
+  id: 'cb',
+  title: 'Callback',
+  type: 'callback',
+  send: [{ invoke: '.*_cb' }],
+  receive: [{ assign: '.*_cb', as: 'handler' }],
+};
+const slotSource =
+  'struct s { void (*on_cb)(void); };\nvoid h(void) {}\nstruct s x = {.on_cb = h};\nvoid fire(struct s *p) { p->on_cb(); }\n';
+const summaryOf = (idx: ConnectionIndex, records: Rec[], rule: string) =>
+  ruleSummaries(idx, connectionsOf(records)).find((s) => s.rule === rule);
+
+describe('reactor status and merging', () => {
+  it('lists a registered handler with two definitions as two unconfirmed reactors', () => {
+    const idx = build([slotRule], { 'a.c': slotSource, 'b.c': 'void h(void) {}\n' });
+    expect(
+      pairingOf(idx, 'fire')!.reactors.map((r) => `${r.via} ${r.file} ${r.confirmed}`),
+    ).toEqual(['key a.c false', 'registered a.c false', 'registered b.c false']);
+  });
+
+  it('confirms a callback slot covered by a keyed connection', () => {
+    const records: Rec[] = [
+      slotRule,
+      { kind: 'connection', id: 'slot', rule: 'cb', title: 'Slot', key: 'on_cb' },
+    ];
+    const idx = build(records, { 'a.c': slotSource });
+    expect(describeReactors(pairingOf(idx, 'fire'))).toEqual([
+      'key - on_cb true',
+      'registered h - true',
+    ]);
+    expect(pairingOf(idx, 'fire')!.connection).toBe('slot');
+    expect(idx.diagnostics).toEqual([]);
+  });
+
+  it('merges a receive site reached by key and by an anchored connection', () => {
+    const records: Rec[] = [
+      jobRule,
+      {
+        kind: 'connection',
+        id: 'jr',
+        rule: 'jb',
+        title: 'JR',
+        send: [{ file: 'a.c', symbol: 's' }],
+        receive: [{ file: 'a.c', symbol: 'r' }],
+      },
+    ];
+    const idx = build(records, {
+      'a.c':
+        'void post(int);\nvoid s(void) { post(J_A); }\nvoid r(int t) { switch (t) { case J_A: break; } }\n',
+    });
+    expect(describeReactors(pairingOf(idx, 's'))).toEqual(['anchored r J_A true']);
+    expect(summaryOf(idx, records, 'jb')).toMatchObject({ paired: 1, confirmed: 1, unpaired: 0 });
+  });
+
+  it('merges a registered handler that is also the send site handler', () => {
+    const rule: RuleRecord = {
+      kind: 'rule',
+      id: 'rg',
+      title: 'Register',
+      type: 'callback',
+      send: [{ call: 'post', key: 1, handler: 2 }],
+      receive: [{ assign: '.*_cb', as: 'handler' }],
+    };
+    const idx = build([rule], {
+      'a.c': `${slotSource}void post(int k, void (*f)(void));\nvoid go(void) { post(on_cb, h); }\n`,
+    });
+    expect(describeReactors(pairingOf(idx, 'go'))).toEqual([
+      'key - on_cb false',
+      'handler h - true',
+    ]);
+  });
+
+  it('takes connection and title from the first covering anchored connection by line', () => {
+    const second: ConnectionRecord = { ...anchoredBox('s', 'r'), id: 'ab2', title: 'Second' };
+    const idx = build([boxRule, anchoredBox('s', 'r'), second], { 'a.c': boxSource });
+    const p = pairingOf(idx, 's')!;
+    expect(p).toMatchObject({ connection: 'ab', title: 'AB' });
+    expect(describeReactors(p)).toEqual(['anchored r - true']);
   });
 });

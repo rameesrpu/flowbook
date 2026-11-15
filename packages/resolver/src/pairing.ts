@@ -179,7 +179,8 @@ function buildContext(
   const keyed = new Map<string, Map<string, Located<ConnectionRecord>>>();
   const anchored: Anchored[] = [];
   // Records with an unknown rule or a malformed form are reported by validateConnections.
-  for (const c of connections.connections) {
+  // Record-line order: the first keyed connection per key and the first covering anchored one win.
+  for (const c of [...connections.connections].sort((a, b) => a.line - b.line)) {
     if (!rules.has(c.rule)) continue;
     if (isKeyedForm(c)) {
       if (!keyed.has(c.rule)) keyed.set(c.rule, new Map());
@@ -266,6 +267,20 @@ function anchoredReactors(
   return { reactors, receives, picked };
 }
 
+/**
+ * Keeps one reactor per target (file, line, column): the first confirmed one, else the first.
+ * Survivors keep their position in the given order.
+ */
+function mergeReactors(reactors: Reactor[]): Reactor[] {
+  const at = (r: Reactor) => `${r.file}:${r.line}:${r.column}`;
+  const best = new Map<string, Reactor>();
+  for (const r of reactors) {
+    const kept = best.get(at(r));
+    if (!kept || (r.confirmed && !kept.confirmed)) best.set(at(r), r);
+  }
+  return reactors.filter((r) => best.get(at(r)) === r);
+}
+
 /** Pairs one send site; also returns the receive sites it reaches by key or anchor. */
 function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[] } {
   const rule = ctx.rules.get(send.rule);
@@ -275,14 +290,15 @@ function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[]
 
   const byKey = keyReceives(ctx, send);
   const anchored = anchoredReactors(ctx, send, covering, candidates);
-  const reactors = [
+  const reactors = mergeReactors([
     ...keyReactors(byKey, keyedBy !== undefined),
     ...registeredReactors(ctx, byKey, keyedBy !== undefined),
     ...anchored.reactors,
     ...(anchored.picked ? [] : handlerReactors(candidates)),
-  ];
+  ]);
 
   const pairing: Pairing = { send, reactors };
+  // A keyed connection for the send's key, else the covering anchored one with the lowest line.
   const connection = keyedBy ?? covering[0]?.record;
   if (connection) {
     pairing.connection = connection.id;
