@@ -69,4 +69,34 @@ exports.run = async function run() {
   const titles = lenses.map((l) => l.command && l.command.title).filter(Boolean);
   assert.ok(titles.includes('Flowbook: in 2 flows'), titles.join(' | '));
   console.log('code lenses:', titles.join(' | '));
+
+  // Connection lenses on a C file, and Go to Reactor from a send line.
+  const jobs = await vscode.workspace.openTextDocument(vscode.Uri.file(`${root}/src/rt/jobs.c`));
+  await vscode.window.showTextDocument(jobs);
+  const connTitles = await waitFor(
+    async () => {
+      const l = await vscode.commands.executeCommand(
+        'vscode.executeCodeLensProvider',
+        jobs.uri,
+        50,
+      );
+      const t = (l || []).map((x) => x.command && x.command.title).filter(Boolean);
+      return t.some((x) => x.startsWith('↳ Read confirmation:')) ? t : undefined;
+    },
+    'connection lenses',
+    20000,
+  );
+  assert.ok(connTitles.includes('↳ 2 keys · posted from 2 places'), connTitles.join(' | '));
+  console.log('connection lenses:', connTitles.join(' | '));
+  const sendLine = jobs
+    .getText()
+    .split('\n')
+    .findIndex((s) => s.includes('JOB_READ_CNF, read_done'));
+  await vscode.commands.executeCommand('flowbook.goToReactor', jobs.uri, sendLine);
+  const here = vscode.window.activeTextEditor;
+  assert.ok(here.document.lineAt(here.selection.active.line).text.includes('case JOB_READ_CNF'));
+  console.log(
+    'go to reactor: landed on',
+    here.document.lineAt(here.selection.active.line).text.trim(),
+  );
 };

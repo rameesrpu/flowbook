@@ -28,6 +28,7 @@
   "activationEvents": [
     "workspaceContains:**/.flowbook",
     "workspaceContains:**/.flowbook/config.jsonl",
+    "workspaceContains:**/.flowbook/connections.jsonl",
     "workspaceContains:**/.flowbook/flows/*.jsonl"
   ],
   "contributes": {
@@ -80,6 +81,16 @@
         "command": "flowbook.showUsages",
         "title": "Show Flows Using This Symbol",
         "category": "Flowbook"
+      },
+      {
+        "command": "flowbook.goToReactor",
+        "title": "Go to Reactor",
+        "category": "Flowbook"
+      },
+      {
+        "command": "flowbook.goToSender",
+        "title": "Go to Sender",
+        "category": "Flowbook"
       }
     ],
     "menus": {
@@ -114,6 +125,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show \"Flowbook: in N flows\" above C/C++ definitions that appear in flows."
+        },
+        "flowbook.connections.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show where a post, event or timer is handled, and who posts to a handler."
         }
       }
     }

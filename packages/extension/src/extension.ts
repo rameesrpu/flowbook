@@ -1,13 +1,15 @@
 import { join } from 'node:path';
 import type { UsageLink } from '@flowbook/core';
-import { Resolver } from '@flowbook/resolver';
+import { Resolver, type Target } from '@flowbook/resolver';
 import * as vscode from 'vscode';
 import { C_CPP_SELECTOR, FlowLenses, showUsages } from './codelens.js';
+import { ConnectionLenses, goTo } from './connections-lens.js';
 import { Flowbook } from './host.js';
 import { Panels } from './panel.js';
 import { FlowsTree } from './tree.js';
 
 const SOURCE_GLOB = '**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,inl,ipp}';
+/** Watched for reloads; covers config.jsonl, connections.jsonl and flows/*.jsonl. */
 const FLOWBOOK_GLOB = '**/.flowbook/**/*.jsonl';
 
 /** What `activate` returns; used by the integration tests. */
@@ -32,9 +34,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('flowbook.flows', tree),
     vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new FlowLenses(flowbook)),
+    vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new ConnectionLenses(flowbook)),
+    vscode.commands.registerCommand(
+      'flowbook.goToReactor',
+      (uri?: vscode.Uri, line?: number, targets?: Target[], prompt?: string) =>
+        goTo(flowbook, 'reactor', uri, line, targets, prompt),
+    ),
+    vscode.commands.registerCommand(
+      'flowbook.goToSender',
+      (uri?: vscode.Uri, line?: number, targets?: Target[], prompt?: string) =>
+        goTo(flowbook, 'sender', uri, line, targets, prompt),
+    ),
     vscode.commands.registerCommand('flowbook.refresh', () => flowbook.reload()),
     vscode.commands.registerCommand('flowbook.check', async () => {
       await flowbook.reload();
+      await flowbook.scanned();
       const all = [...flowbook.roots.values()];
       const diags = all.flatMap((s) => s.diagnostics);
       const errors = diags.filter((d) => d.severity === 'error').length;
@@ -84,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
     ),
   );
 
-  // Live reload: any flow file or C/C++ source saved, created or deleted.
+  // Live reload: any flow, config or connections file or C/C++ source saved, created or deleted.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const schedule = () => {
     if (timer) clearTimeout(timer);

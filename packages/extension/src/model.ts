@@ -15,10 +15,13 @@ import {
 } from '@flowbook/core';
 import {
   anchorDiagnostics,
+  buildConnectionIndex,
   checkAnchors,
   readWorkspace,
   sourceReader,
   type AnchorStatus,
+  type ConnectionIndex,
+  type FileScan,
   type ReadSource,
   type Resolver,
   type SymbolInfo,
@@ -30,18 +33,42 @@ export interface RootState {
   root: string;
   ws: Workspace;
   statuses: AnchorStatus[];
-  /** Workspace diagnostics followed by anchor diagnostics. */
+  /** Connection scans of the root's source files, by root-relative path. */
+  scans: Map<string, FileScan>;
+  /** Pairings of `ws.connections` over `scans`. */
+  connectionIndex: ConnectionIndex;
+  /** Workspace diagnostics, then anchor diagnostics, then connection diagnostics. */
   diagnostics: Diagnostic[];
 }
 
+/**
+ * Loads a root. Without `scans` the root has not been scanned yet: the connection index is empty
+ * and its checks are skipped, since every one of them would fail against no sites.
+ */
 export function loadRoot(
   root: string,
   resolver: Resolver,
   read: ReadSource = sourceReader(root),
+  scans?: Map<string, FileScan>,
 ): RootState {
   const ws = readWorkspace(root);
   const statuses = checkAnchors(ws, read, resolver);
-  return { root, ws, statuses, diagnostics: [...ws.diagnostics, ...anchorDiagnostics(statuses)] };
+  const connectionIndex = buildConnectionIndex(
+    scans ? ws.connections : { rules: [], connections: [] },
+    scans ?? new Map(),
+  );
+  return {
+    root,
+    ws,
+    statuses,
+    scans: scans ?? new Map(),
+    connectionIndex,
+    diagnostics: [
+      ...ws.diagnostics,
+      ...anchorDiagnostics(statuses),
+      ...(scans ? connectionIndex.diagnostics : []),
+    ],
+  };
 }
 
 export const findFlow = (state: RootState, flowId: string): Flow | undefined =>
@@ -248,10 +275,10 @@ export function lensTargets(
   return out;
 }
 
-/** Root directory for a `.flowbook/config.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
+/** Root directory for a `.flowbook/{config,connections}.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
 export function rootOfFlowbookFile(path: string): string | undefined {
   const p = path.split('\\').join('/');
-  const m = /^(.*)\/\.flowbook\/(?:config\.jsonl|flows\/[^/]+\.jsonl)$/.exec(p);
+  const m = /^(.*)\/\.flowbook\/(?:config\.jsonl|connections\.jsonl|flows\/[^/]+\.jsonl)$/.exec(p);
   return m ? m[1] || '/' : undefined;
 }
 

@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Resolver, type ReadSource } from '@flowbook/resolver';
+import { Resolver, scanRoot, type ReadSource } from '@flowbook/resolver';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   buildPayload,
@@ -27,6 +28,32 @@ let state: RootState;
 beforeAll(async () => {
   resolver = await Resolver.create();
   state = loadRoot(fixture, resolver);
+});
+
+describe('loadRoot', () => {
+  it('indexes connections from the given scans and reports their problems', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flowbook-model-'));
+    cpSync(fixture, dir, { recursive: true });
+    appendFileSync(
+      join(dir, '.flowbook/connections.jsonl'),
+      '{"kind":"connection","id":"ghost","rule":"job","key":"JOB_GHOST","title":"Ghost"}\n',
+    );
+    const ghost = (s: RootState) => s.diagnostics.filter((d) => d.message.includes('JOB_GHOST'));
+
+    // Not scanned yet: an empty index, and no connection checks that would all fail.
+    const unscanned = loadRoot(dir, resolver);
+    expect(unscanned.scans.size).toBe(0);
+    expect(unscanned.connectionIndex.pairings).toEqual([]);
+    expect(ghost(unscanned)).toEqual([]);
+
+    const scans = scanRoot(dir, unscanned.ws.connections, resolver);
+    const scanned = loadRoot(dir, resolver, undefined, scans);
+    expect(scanned.scans).toBe(scans);
+    expect(scanned.connectionIndex.pairings.length).toBeGreaterThan(0);
+    expect(ghost(scanned)).toMatchObject([
+      { severity: 'error', file: '.flowbook/connections.jsonl', id: 'ghost' },
+    ]);
+  });
 });
 
 describe('buildPayload', () => {
@@ -187,6 +214,7 @@ describe('paths', () => {
   it('finds the root of flowbook files', () => {
     expect(rootOfFlowbookFile('/r/x/.flowbook/config.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/flows/a.jsonl')).toBe('/r/x');
+    expect(rootOfFlowbookFile('/r/x/.flowbook/connections.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/other.jsonl')).toBeUndefined();
   });
 
