@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { ConnectionsFileRecord, type Connections } from './connections.js';
 import {
   ConfigFileRecord,
   FlowFileRecord,
@@ -112,4 +113,16 @@ export function parseFlow(
 export function parseConfig(text: string, file: string, diagnostics: Diagnostic[] = []): Config {
   const records = parseLines(text, file, ConfigFileRecord, diagnostics);
   return { groups: records.filter((r) => r.kind === 'group') };
+}
+
+export function parseConnections(
+  text: string,
+  file: string,
+  diagnostics: Diagnostic[] = [],
+): Connections {
+  const records = parseLines(text, file, ConnectionsFileRecord, diagnostics);
+  return {
+    rules: records.filter((r) => r.kind === 'rule'),
+    connections: records.filter((r) => r.kind === 'connection'),
+  };
 }
