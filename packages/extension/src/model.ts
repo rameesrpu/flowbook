@@ -53,21 +53,25 @@ export function loadRoot(
 ): RootState {
   const ws = readWorkspace(root);
   const statuses = checkAnchors(ws, read, resolver);
-  const connectionIndex = buildConnectionIndex(
-    scans ? ws.connections : { rules: [], connections: [] },
-    scans ?? new Map(),
-  );
-  return {
+  const state: RootState = {
     root,
     ws,
     statuses,
-    scans: scans ?? new Map(),
+    scans: new Map(),
+    connectionIndex: buildConnectionIndex({ rules: [], connections: [] }, new Map()),
+    diagnostics: [...ws.diagnostics, ...anchorDiagnostics(statuses)],
+  };
+  return scans ? withScans(state, scans) : state;
+}
+
+/** A root loaded without scans, given `scans`: its connection index and diagnostics are added. */
+export function withScans(state: RootState, scans: Map<string, FileScan>): RootState {
+  const connectionIndex = buildConnectionIndex(state.ws.connections, scans);
+  return {
+    ...state,
+    scans,
     connectionIndex,
-    diagnostics: [
-      ...ws.diagnostics,
-      ...anchorDiagnostics(statuses),
-      ...(scans ? connectionIndex.diagnostics : []),
-    ],
+    diagnostics: [...state.diagnostics, ...connectionIndex.diagnostics],
   };
 }
 

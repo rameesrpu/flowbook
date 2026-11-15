@@ -11,6 +11,7 @@ import {
   type Pairing,
   type Reactor,
   type Site,
+  type SymbolInfo,
   type Target,
 } from '@flowbook/resolver';
 
@@ -52,38 +53,77 @@ const isReceiveThenHandler = (targets: (Target & Partial<Pick<Reactor, 'via'>>)[
   (targets[0]!.via === 'key' || targets[0]!.via === 'anchored') &&
   targets[1]!.via === 'handler';
 
+/** The last `::` segment of a handler or symbol name. */
+const leaf = (name: string) => name.slice(name.lastIndexOf(':') + 1);
+
 /**
- * The reactors a send lens shows. In the callback-slot case (receive sites matched by key that
- * register handlers) the registered functions are what runs, so only they are shown.
+ * The reactors a send lens shows, and its click targets. A key reactor whose receive site
+ * registers a handler (the callback-slot case) is replaced by the registered function, which is
+ * what runs; every other reactor stays.
  */
-function shownReactors(p: Pairing): Reactor[] {
-  const registered = p.reactors.filter((r) => r.via === 'registered');
-  const slot =
-    registered.length > 0 && p.reactors.every((r) => r.via === 'key' || r.via === 'registered');
-  return slot ? registered : p.reactors;
+function shownReactors(p: Pairing, sites: Site[]): Reactor[] {
+  const registered = new Set(
+    p.reactors.filter((r) => r.via === 'registered' && r.symbol).map((r) => leaf(r.symbol!)),
+  );
+  return p.reactors.filter((r) => {
+    if (r.via !== 'key') return true;
+    const handler = receiveAt(p, r, sites)?.handler;
+    return handler === undefined || !registered.has(leaf(handler));
+  });
+}
+
+/** Distinct shown reactors of several pairings, in order. */
+function shownOf(pairings: Pairing[], sites: Site[]): Reactor[] {
+  const out: Reactor[] = [];
+  for (const p of pairings)
+    for (const r of shownReactors(p, sites)) if (!out.some((o) => samePlace(o, r))) out.push(r);
+  return out;
+}
+
+/** Names for a reactor list, told apart by file base name, then by line, where they collide. */
+function names(reactors: Reactor[]): string[] {
+  const base = (t: Target) => t.file.slice(t.file.lastIndexOf('/') + 1);
+  const plain = reactors.map(spot);
+  const withFile = reactors.map((r, i) => `${plain[i]} (${base(r)})`);
+  const withLine = reactors.map((r, i) => `${plain[i]} (${base(r)}:${r.line + 1})`);
+  const clash = (list: string[], i: number) => list.some((n, j) => j !== i && n === list[i]);
+  return reactors.map((_, i) =>
+    !clash(plain, i) ? plain[i]! : !clash(withFile, i) ? withFile[i]! : withLine[i]!,
+  );
+}
+
+/** One value when every pairing has the same one. */
+function common(pairings: Pairing[], pick: (p: Pairing) => string | undefined) {
+  const values = new Set(pairings.map(pick));
+  return values.size === 1 ? [...values][0] : undefined;
 }
 
 /**
- * Title of the lens on a send site. `sites` are the index's sites; the receive site behind a
- * reactor says whether it is a `case` or `test`, which the title names with its key.
+ * Title of the lens on a line of send sites (usually one). `sites` are the index's sites; the
+ * receive site behind a reactor says whether it is a `case` or `test`, which the title names with
+ * its key. A connection title or context is shown when every pairing on the line shares it.
  */
-export function sendLensTitle(p: Pairing, sites: Site[]): string {
-  const shown = shownReactors(p);
+export function sendLensTitle(pairings: Pairing | Pairing[], sites: Site[]): string {
+  const list = Array.isArray(pairings) ? pairings : [pairings];
+  const shown = shownOf(list, sites);
   if (shown.length === 0) return '↳ no reactor found';
   const [first, second] = shown;
-  const site = receiveAt(p, first!, sites);
-  let body: string;
   const pair = isReceiveThenHandler(shown);
+  let body: string;
   if (shown.length === 1 || pair) {
+    const owner = list.find((p) => p.reactors.includes(first!))!;
+    const site = receiveAt(owner, first!, sites);
     body = spot(first!);
     if (site && (site.matcher === 'case' || site.matcher === 'test') && site.key !== undefined)
       body += ` · ${site.matcher} ${site.key}`;
-    if (p.context !== undefined) body += ` (${p.context})`;
+    const context = common(list, (p) => p.context);
+    if (context !== undefined) body += ` (${context})`;
     if (pair) body += ` → then ${spot(second!)}`;
-  } else body = `${shown.length} reactors: ${shown.map(spot).join(', ')}`;
-  const title = p.title === undefined ? '' : `${p.title}: `;
+  } else body = `${shown.length} reactors: ${names(shown).join(', ')}`;
+  const title = common(list, (p) => p.title);
+  const prefix = title === undefined ? '' : `${title}: `;
   const unconfirmed = shown.some((r) => !r.confirmed) ? ' · unconfirmed' : '';
-  return `↳ ${title}${body}${unconfirmed}`;
+  return `↳ ${prefix}${body}${unconfirmed}`;
 }
 
 /** Ready-to-paste instructions for a coding agent to pair a send site nothing reacts to. */
@@ -104,8 +144,8 @@ export function agentPrompt(site: Site): string {
   );
 }
 
-/** The index with `docScan` standing in for the saved scan of `rel`. */
-function indexWith(
+/** The index for a document with unsaved edits: `docScan` stands in for the saved scan of `rel`. */
+export function documentIndex(
   connections: Connections,
   scans: Map<string, FileScan>,
   rel: string,
@@ -116,38 +156,39 @@ function indexWith(
   return buildConnectionIndex(connections, copy);
 }
 
-/** Distinct reactors of the send sites on `line`, in order. */
-function reactorsOn(index: ConnectionIndex, rel: string, line: number): Reactor[] {
-  const out: Reactor[] = [];
-  for (const p of index.pairings) {
-    if (p.send.file !== rel || p.send.line !== line) continue;
-    for (const r of p.reactors) if (!out.some((o) => samePlace(o, r))) out.push(r);
-  }
-  return out;
-}
+/** Pairings of the send sites on `line` of `rel`. */
+const pairingsOn = (index: ConnectionIndex, rel: string, line: number) =>
+  index.pairings.filter((p) => p.send.file === rel && p.send.line === line);
+
+const copyTarget = (r: Reactor): Reactor => ({ ...r });
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** Lenses for one document, computed from its current text. */
+/**
+ * Lenses for one document. `index` covers the document's current text (the root's index for a
+ * saved document, `documentIndex` for one with unsaved edits); `symbols` are its definitions.
+ */
 export function documentLenses(
-  connections: Connections,
-  scans: Map<string, FileScan>,
+  index: ConnectionIndex,
   rel: string,
-  docScan: FileScan,
+  symbols: SymbolInfo[],
 ): ConnLens[] {
-  if (connections.rules.length === 0) return [];
-  const index = indexWith(connections, scans, rel, docScan);
   const out: ConnLens[] = [];
 
-  for (const p of index.pairings) {
-    if (p.send.file !== rel) continue;
+  // One send lens per line, covering every send site on it.
+  const sendLines = [
+    ...new Set(index.pairings.filter((p) => p.send.file === rel).map((p) => p.send.line)),
+  ];
+  for (const line of sendLines) {
+    const pairings = pairingsOn(index, rel, line);
     const lens: ConnLens = {
-      line: p.send.line,
-      title: sendLensTitle(p, index.sites),
+      line,
+      title: sendLensTitle(pairings, index.sites),
       command: 'flowbook.goToReactor',
-      targets: p.reactors.map((r) => ({ ...r })),
+      targets: shownOf(pairings, index.sites).map(copyTarget),
     };
-    if (p.reactors.length === 0) lens.prompt = agentPrompt(p.send);
+    const prompt = promptAt(index, rel, line);
+    if (prompt !== undefined) lens.prompt = prompt;
     out.push(lens);
   }
 
@@ -164,7 +205,7 @@ export function documentLenses(
     else runs.push([line]);
   }
   const taken = new Set(receiveLines);
-  for (const s of docScan.symbols)
+  for (const s of symbols)
     if (s.kind === 'function' && !taken.has(s.nameLine)) {
       taken.add(s.nameLine);
       runs.push([s.nameLine]);
@@ -190,18 +231,23 @@ export function documentLenses(
   return out.sort((a, b) => a.line - b.line);
 }
 
+/** What `Go to Reactor` / `Go to Sender` jump to from `line`: the same targets the lens there has. */
 export function targetsAt(
-  connections: Connections,
-  scans: Map<string, FileScan>,
+  index: ConnectionIndex,
   rel: string,
-  docScan: FileScan,
   line: number,
   direction: 'reactor' | 'sender',
 ): Target[] {
-  if (connections.rules.length === 0) return [];
-  const index = indexWith(connections, scans, rel, docScan);
-  if (direction === 'reactor') return reactorsOn(index, rel, line).map((r) => ({ ...r }));
+  if (direction === 'reactor')
+    return shownOf(pairingsOn(index, rel, line), index.sites).map(copyTarget);
   return sendersOf(index, { file: rel, line }).map(siteTarget);
+}
+
+/** The agent prompt for the send sites on `line` when none of them has a reactor. */
+export function promptAt(index: ConnectionIndex, rel: string, line: number): string | undefined {
+  const pairings = pairingsOn(index, rel, line);
+  if (pairings.length === 0 || shownOf(pairings, index.sites).length > 0) return undefined;
+  return pairings.map((p) => agentPrompt(p.send)).join('\n\n');
 }
 
 /**

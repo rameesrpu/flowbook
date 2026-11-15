@@ -16,6 +16,7 @@ import {
   problemCount,
   rootOfFlowbookFile,
   snippetOf,
+  withScans,
   type RootState,
 } from './model.js';
 
@@ -53,6 +54,8 @@ describe('loadRoot', () => {
     expect(ghost(scanned)).toMatchObject([
       { severity: 'error', file: '.flowbook/connections.jsonl', id: 'ghost' },
     ]);
+    // Attaching the scans to the unscanned state gives the same result.
+    expect(withScans(unscanned, scans)).toEqual(scanned);
   });
 });
 

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseConnections, type Connections } from '@flowbook/core';
 import {
+  buildConnectionIndex,
   readWorkspace,
   Resolver,
   scanRoot,
@@ -11,7 +12,13 @@ import {
   type Target,
 } from '@flowbook/resolver';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { directTarget, documentLenses, targetsAt, type ConnLens } from './connections-model.js';
+import {
+  directTarget,
+  documentIndex,
+  documentLenses,
+  targetsAt,
+  type ConnLens,
+} from './connections-model.js';
 
 const fixture = resolve(fileURLToPath(import.meta.url), '../../../../fixtures/cpp-sample');
 const read = (rel: string) => readFileSync(join(fixture, rel), 'utf8');
@@ -28,12 +35,29 @@ beforeAll(async () => {
 
 const docScanOf = (rel: string, text = read(rel)) => resolver.scan(rel, text, connections.rules);
 
+/** Lenses of a document from its current text (the dirty-document path). */
+function dirtyLenses(rel: string, text = read(rel)): ConnLens[] {
+  const docScan = docScanOf(rel, text);
+  return documentLenses(documentIndex(connections, scans, rel, docScan), rel, docScan.symbols);
+}
+
 function lensesOf(rel: string, text = read(rel)): string[] {
   const lines = text.split('\n');
-  return documentLenses(connections, scans, rel, docScanOf(rel, text)).map(
-    (l) => `${lines[l.line]!.trim().slice(0, 24)} | ${l.title}`,
-  );
+  return dirtyLenses(rel, text).map((l) => `${lines[l.line]!.trim().slice(0, 24)} | ${l.title}`);
 }
+
+/** Lenses of `rel` in a root made of `files`, under the given connections.jsonl text. */
+function inlineLenses(jsonl: string, files: Record<string, string>, rel: string): ConnLens[] {
+  const conns = parseConnections(jsonl, 'c.jsonl');
+  const own = scanSources(
+    Object.entries(files).map(([path, text]) => ({ path, text })),
+    conns,
+    resolver,
+  );
+  return documentLenses(buildConnectionIndex(conns, own), rel, own.get(rel)?.symbols ?? []);
+}
+
+const rule = (r: object) => JSON.stringify({ kind: 'rule', title: 'R', type: 'event', ...r });
 
 const lineOf = (rel: string, needle: string) =>
   read(rel)
@@ -74,6 +98,67 @@ describe('documentLenses', () => {
     expect(lensesOf(JOBS)).toContain('void notify_state(struct | ↳ app_state · unconfirmed');
   });
 
+  it('jumps straight to the registered function of a callback slot', () => {
+    const lens = dirtyLenses(JOBS).find((l) => l.line === lineOf(JOBS, 'cfg->state_cb'))!;
+    expect(lens.targets.map((t) => [t.file, t.symbol])).toEqual([[APP, 'app_state']]);
+    expect(directTarget(lens.targets)).toBe(lens.targets[0]);
+  });
+
+  it('keeps a plain case reactor next to a registered handler of the same key', () => {
+    const jsonl = rule({
+      id: 'ev',
+      send: [{ call: 'post', key: 1 }],
+      receive: [{ case: 'on_.*' }, { assign: 'on_.*', as: 'handler' }],
+    });
+    const x = [
+      'void sender(void) { post(on_ev); }',
+      'void loop(int t) { switch (t) { case on_ev: break; } }',
+      'static void my_handler(void) {}',
+      'struct cfg c = {.on_ev = my_handler};',
+    ].join('\n');
+    const lens = inlineLenses(jsonl, { 'x.c': x }, 'x.c').find((l) => l.line === 0)!;
+    expect(lens.title).toBe('↳ 2 reactors: loop, my_handler · unconfirmed');
+    expect(lens.targets.map((t) => t.symbol)).toEqual(['loop', 'my_handler']);
+  });
+
+  it('lists several reactors', () => {
+    const jsonl = rule({ id: 'k', send: [{ call: 'post', key: 1 }], receive: [{ case: 'K_.*' }] });
+    const x = [
+      'void go(void) { post(K_A); }',
+      ...['a', 'b', 'c'].map((f) => `void ${f}(int t) { switch (t) { case K_A: break; } }`),
+    ].join('\n');
+    const lens = inlineLenses(jsonl, { 'x.c': x }, 'x.c').find((l) => l.line === 0)!;
+    expect(lens.title).toBe('↳ 3 reactors: a, b, c · unconfirmed');
+    expect(lens.targets).toHaveLength(3);
+  });
+
+  it('marks a handler with two candidate definitions unconfirmed and tells them apart', () => {
+    const jsonl = rule({ id: 't', type: 'timer', send: [{ call: 'later', handler: 1 }] });
+    const files = {
+      'src/a.c': 'void cb(void) {}\n',
+      'src/b.c': 'void cb(void) {}\n',
+      'src/s.c': 'void go(void) { later(cb); }\n',
+    };
+    const [lens] = inlineLenses(jsonl, files, 'src/s.c');
+    expect(lens!.title).toBe('↳ 2 reactors: cb (a.c), cb (b.c) · unconfirmed');
+    expect(directTarget(lens!.targets)).toBeUndefined();
+  });
+
+  it('gives two send sites on one line a single lens', () => {
+    const jsonl = [
+      rule({ id: 'a', send: [{ call: 'a_post', key: 1 }], receive: [{ case: 'X_.*' }] }),
+      rule({ id: 'b', send: [{ call: 'b_post', key: 1 }], receive: [{ case: 'Y_.*' }] }),
+    ].join('\n');
+    const x = [
+      'void both(void) { a_post(X_1); b_post(Y_1); }',
+      'void la(int t) { switch (t) { case X_1: break; } }',
+      'void lb(int t) { switch (t) { case Y_1: break; } }',
+    ].join('\n');
+    const onLine = inlineLenses(jsonl, { 'x.c': x }, 'x.c').filter((l) => l.line === 0);
+    expect(onLine.map((l) => l.title)).toEqual(['↳ 2 reactors: la, lb · unconfirmed']);
+    expect(onLine[0]!.targets.map((t) => t.symbol)).toEqual(['la', 'lb']);
+  });
+
   it('merges consecutive case labels into one lens', () => {
     const all = lensesOf(JOBS);
     expect(all.filter((l) => l.startsWith('case JOB_READ_CNF:'))).toEqual([
@@ -95,8 +180,8 @@ describe('documentLenses', () => {
 
   it('follows unsaved edits', () => {
     const text = read(JOBS);
-    const before = documentLenses(connections, scans, JOBS, docScanOf(JOBS));
-    const after = documentLenses(connections, scans, JOBS, docScanOf(JOBS, `\n\n\n${text}`));
+    const before = dirtyLenses(JOBS);
+    const after = dirtyLenses(JOBS, `\n\n\n${text}`);
     expect(before.length).toBeGreaterThan(0);
     expect(after.map((l) => [l.line, l.title])).toEqual(before.map((l) => [l.line + 3, l.title]));
     // Targets in the edited file move with it.
@@ -106,11 +191,9 @@ describe('documentLenses', () => {
   });
 
   it('offers a prompt on an unpaired send', () => {
-    const rules = parseConnections(read('.flowbook/connections.jsonl'), 'c.jsonl');
     const rel = 'src/extra.c';
     const text = 'void lonely(void) { job_post(&j, JOB_NOBODY, nobody_cb); }\n';
-    const own = scanSources([{ path: rel, text }], rules, resolver);
-    const lenses = documentLenses(rules, own, rel, resolver.scan(rel, text, rules.rules));
+    const lenses = inlineLenses(read('.flowbook/connections.jsonl'), { [rel]: text }, rel);
     expect(lenses).toHaveLength(1);
     const [lens] = lenses as [ConnLens];
     expect(lens.title).toBe('↳ no reactor found');
@@ -124,13 +207,19 @@ describe('documentLenses', () => {
   it('returns no lenses without rules', () => {
     const none: Connections = { rules: [], connections: [] };
     const scan = resolver.scan(JOBS, read(JOBS), []);
-    expect(documentLenses(none, new Map(), JOBS, scan)).toEqual([]);
+    const index = documentIndex(none, new Map(), JOBS, scan);
+    expect(documentLenses(index, JOBS, scan.symbols)).toEqual([]);
+  });
+
+  it('gives a clean document the same lenses from the saved index', () => {
+    const saved = buildConnectionIndex(connections, scans);
+    expect(documentLenses(saved, JOBS, scans.get(JOBS)!.symbols)).toEqual(dirtyLenses(JOBS));
   });
 });
 
 describe('targetsAt', () => {
   const at = (line: number, direction: 'reactor' | 'sender') =>
-    targetsAt(connections, scans, JOBS, docScanOf(JOBS), line, direction);
+    targetsAt(documentIndex(connections, scans, JOBS, docScanOf(JOBS)), JOBS, line, direction);
 
   it("targetsAt a merged case line returns only that key's senders", () => {
     const t = at(lineOf(JOBS, 'case JOB_WRITE_CNF'), 'sender');
@@ -153,14 +242,8 @@ describe('targetsAt', () => {
 
 describe('directTarget', () => {
   it('opens a key reactor followed only by its handler', () => {
-    const t = targetsAt(
-      connections,
-      scans,
-      JOBS,
-      docScanOf(JOBS),
-      lineOf(JOBS, 'JOB_READ_CNF, read_done'),
-      'reactor',
-    );
+    const index = buildConnectionIndex(connections, scans);
+    const t = targetsAt(index, JOBS, lineOf(JOBS, 'JOB_READ_CNF, read_done'), 'reactor');
     expect(directTarget(t)).toBe(t[0]);
   });
 

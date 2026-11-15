@@ -24,7 +24,7 @@ export interface ScanCache {
 export const createScanCache = (): ScanCache => ({ files: new Map() });
 
 /** Everything the results depend on besides file contents: rule records and anchored files. */
-function rulesKeyOf(connections: Connections): string {
+export function rulesKeyOf(connections: Connections): string {
   const rules = connections.rules.map((r) => ({ ...r, line: undefined }));
   const anchored = new Set<string>();
   for (const c of connections.connections)

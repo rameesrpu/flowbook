@@ -1,20 +1,40 @@
 import { join } from 'node:path';
-import type { Target } from '@flowbook/resolver';
+import type { ConnectionIndex, SymbolInfo, Target } from '@flowbook/resolver';
 import * as vscode from 'vscode';
-import { directTarget, documentLenses, targetsAt, type ConnLens } from './connections-model.js';
+import {
+  directTarget,
+  documentIndex,
+  documentLenses,
+  promptAt,
+  targetsAt,
+  type ConnLens,
+} from './connections-model.js';
 import type { Flowbook } from './host.js';
 
 const enabled = () =>
   vscode.workspace.getConfiguration('flowbook').get<boolean>('connections.codeLens.enabled', true);
 
-/** The document's root state and scan, when its root has rules and a landed scan. */
-function scanned(flowbook: Flowbook, doc: vscode.TextDocument) {
+type View =
+  | { kind: 'none' | 'pending' | 'failed' }
+  | { kind: 'ready'; index: ConnectionIndex; rel: string; symbols: SymbolInfo[] };
+
+/**
+ * The connection index covering the document's current text. A saved document uses the root's
+ * index; only a document with unsaved edits is re-parsed and gets an index of its own.
+ */
+function viewOf(flowbook: Flowbook, doc: vscode.TextDocument): View {
   const hit = flowbook.locate(doc.uri.fsPath);
-  if (!hit || !flowbook.isScanned(hit.state.root)) return undefined;
-  const { connections } = hit.state.ws;
-  if (connections.rules.length === 0) return undefined;
-  const docScan = flowbook.resolver.scan(hit.rel, doc.getText(), connections.rules);
-  return { ...hit, connections, docScan };
+  if (!hit || hit.state.ws.connections.rules.length === 0) return { kind: 'none' };
+  const status = flowbook.scanStatus(hit.state.root);
+  if (status !== 'ready') return { kind: status };
+  const { state, rel } = hit;
+  if (!doc.isDirty) {
+    const symbols = state.scans.get(rel)?.symbols ?? [];
+    return { kind: 'ready', index: state.connectionIndex, rel, symbols };
+  }
+  const docScan = flowbook.resolver.scan(rel, doc.getText(), state.ws.connections.rules);
+  const index = documentIndex(state.ws.connections, state.scans, rel, docScan);
+  return { kind: 'ready', index, rel, symbols: docScan.symbols };
 }
 
 /** "↳ …" on send sites (where it runs) and on reactors (who posts to them). */
@@ -29,11 +49,11 @@ export class ConnectionLenses implements vscode.CodeLensProvider {
     });
   }
 
-  provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
-    if (!enabled()) return [];
-    const at = scanned(this.flowbook, doc);
-    if (!at) return [];
-    return documentLenses(at.connections, at.state.scans, at.rel, at.docScan).map(
+  provideCodeLenses(doc: vscode.TextDocument, token: vscode.CancellationToken): vscode.CodeLens[] {
+    if (!enabled() || token.isCancellationRequested) return [];
+    const view = viewOf(this.flowbook, doc);
+    if (view.kind !== 'ready' || token.isCancellationRequested) return [];
+    return documentLenses(view.index, view.rel, view.symbols).map(
       (l: ConnLens) =>
         new vscode.CodeLens(new vscode.Range(l.line, 0, l.line, 0), {
           title: l.title,
@@ -43,6 +63,12 @@ export class ConnectionLenses implements vscode.CodeLensProvider {
     );
   }
 }
+
+const NOT_READY = {
+  none: 'Flowbook: there are no connection rules for this root.',
+  pending: 'Flowbook: connections are still being scanned.',
+  failed: 'Flowbook: the connection scan of this root failed; see the Flowbook output channel.',
+} as const;
 
 /**
  * `flowbook.goToReactor` / `flowbook.goToSender`. Acts on `uri` and `line` when given, else on the
@@ -72,20 +98,14 @@ export async function goTo(
     return;
   }
   if (!targets) {
-    const ctx = scanned(flowbook, doc);
-    if (!ctx) {
-      const msg = flowbook.isScanned(hit.state.root)
-        ? 'Flowbook: this root has no connection rules.'
-        : 'Flowbook: connections are still being scanned.';
-      void vscode.window.showInformationMessage(msg);
+    const view = viewOf(flowbook, doc);
+    if (view.kind !== 'ready') {
+      void vscode.window.showInformationMessage(NOT_READY[view.kind]);
       return;
     }
-    targets = targetsAt(ctx.connections, ctx.state.scans, ctx.rel, ctx.docScan, at, direction);
-    if (targets.length === 0 && direction === 'reactor') {
-      prompt = documentLenses(ctx.connections, ctx.state.scans, ctx.rel, ctx.docScan).find(
-        (l) => l.line === at && l.prompt !== undefined,
-      )?.prompt;
-    }
+    targets = targetsAt(view.index, view.rel, at, direction);
+    if (targets.length === 0 && direction === 'reactor')
+      prompt = promptAt(view.index, view.rel, at);
   }
 
   if (targets.length === 0) {
