@@ -117,11 +117,56 @@ describe('buildConnectionIndex on the fixture', () => {
 
   it('summarises each rule', () => {
     expect(ruleSummaries(index, ws.connections)).toEqual([
-      { rule: 'job', send: 2, receive: 3, paired: 2, confirmed: 1, unpaired: 1, keyed: true },
-      { rule: 'timer', send: 1, receive: 0, paired: 1, confirmed: 1, unpaired: 0, keyed: false },
-      { rule: 'event', send: 1, receive: 1, paired: 1, confirmed: 0, unpaired: 0, keyed: true },
-      { rule: 'app-cb', send: 1, receive: 2, paired: 1, confirmed: 0, unpaired: 1, keyed: true },
-      { rule: 'mbox', send: 1, receive: 1, paired: 1, confirmed: 1, unpaired: 0, keyed: false },
+      {
+        rule: 'job',
+        send: 2,
+        receive: 3,
+        paired: 2,
+        confirmed: 1,
+        unpaired: 1,
+        missingReceive: 0,
+        keyed: true,
+      },
+      {
+        rule: 'timer',
+        send: 1,
+        receive: 0,
+        paired: 1,
+        confirmed: 1,
+        unpaired: 0,
+        missingReceive: 0,
+        keyed: false,
+      },
+      {
+        rule: 'event',
+        send: 1,
+        receive: 1,
+        paired: 1,
+        confirmed: 0,
+        unpaired: 0,
+        missingReceive: 0,
+        keyed: true,
+      },
+      {
+        rule: 'app-cb',
+        send: 1,
+        receive: 2,
+        paired: 1,
+        confirmed: 0,
+        unpaired: 1,
+        missingReceive: 0,
+        keyed: true,
+      },
+      {
+        rule: 'mbox',
+        send: 1,
+        receive: 1,
+        paired: 1,
+        confirmed: 1,
+        unpaired: 0,
+        missingReceive: 0,
+        keyed: false,
+      },
     ]);
   });
 });
@@ -263,7 +308,8 @@ describe('buildConnectionIndex on inline sources', () => {
     expect(idx.diagnostics[0]!.message).toBe(
       'connection "k": key "J_B" has no receive site for rule "jb"',
     );
-    expect(describeReactors(pairingOf(idx, 's'))).toEqual(['handler h - true']);
+    expect(describeReactors(pairingOf(idx, 's'))).toEqual(['handler h - false']);
+    expect(pairingOf(idx, 's')!.missingReceive).toBe(true);
   });
 
   it('pairs an anchored connection without diagnostics when both functions hold sites', () => {
@@ -408,5 +454,55 @@ describe('reactor status and merging', () => {
     const p = pairingOf(idx, 's')!;
     expect(p).toMatchObject({ connection: 'ab', title: 'AB' });
     expect(describeReactors(p)).toEqual(['anchored r - true']);
+  });
+});
+
+describe('send sites whose key has no receive site', () => {
+  const postRule: RuleRecord = {
+    kind: 'rule',
+    id: 'pj',
+    title: 'Posted job',
+    type: 'queue',
+    send: [{ call: 'post', key: 1, handler: 2 }],
+    receive: [{ case: 'J_.*' }],
+  };
+  const source = (cases: string) =>
+    `void post(int k, void (*f)(void));\nvoid x_cb(void) {}\nvoid s(void) { post(J_X, x_cb); }\nvoid r(int t) { switch (t) { ${cases} default: break; } }\n`;
+
+  it('leaves the handler unconfirmed and flags the pairing when no case has the key', () => {
+    const idx = build([postRule], { 'a.c': source('case J_Y: break;') });
+    const p = pairingOf(idx, 's')!;
+    expect(describeReactors(p)).toEqual(['handler x_cb - false']);
+    expect(p.missingReceive).toBe(true);
+    expect(summaryOf(idx, [postRule], 'pj')).toMatchObject({
+      paired: 0,
+      confirmed: 0,
+      missingReceive: 1,
+    });
+    expect(idx.diagnostics).toEqual([]);
+  });
+
+  it('is unchanged when the case is present', () => {
+    const idx = build([postRule], { 'a.c': source('case J_X: break;') });
+    const p = pairingOf(idx, 's')!;
+    expect(describeReactors(p)).toEqual(['key r J_X false', 'handler x_cb - true']);
+    expect(p.missingReceive).toBeUndefined();
+    expect(summaryOf(idx, [postRule], 'pj')).toMatchObject({
+      paired: 1,
+      confirmed: 0,
+      missingReceive: 0,
+    });
+  });
+
+  it('is unchanged for a rule without receive matchers', () => {
+    const idx = build([timerRule], { 'a.c': `void h(void) {}\n${caller}` });
+    const p = pairingOf(idx, 'go')!;
+    expect(describeReactors(p)).toEqual(['handler h - true']);
+    expect(p.missingReceive).toBeUndefined();
+    expect(summaryOf(idx, [timerRule], 'tm')).toMatchObject({
+      paired: 1,
+      confirmed: 1,
+      missingReceive: 0,
+    });
   });
 });

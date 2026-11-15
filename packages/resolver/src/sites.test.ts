@@ -102,6 +102,19 @@ describe('scan', () => {
     expect(s?.unresolvedHandler).toBeUndefined();
   });
 
+  it('treats assigning NULL, nullptr or 0 to a handler field as no registration', () => {
+    const r = rule({
+      send: [{ invoke: 'reset_cb' }],
+      receive: [{ assign: '.*_cb', as: 'handler' }],
+    });
+    const text =
+      'struct ops o = {.reset_cb = NULL};\nvoid f(struct ops *cfg) { cfg->reset_cb = 0; cfg->reset_cb = (NULL); }\nstruct ops p = {.reset_cb = &real};\n';
+    const found = scan('x.c', text, [r]).filter((s) => s.role === 'receive');
+    expect(found.map((s) => `${s.key} ${s.handler ?? '-'}`)).toEqual(['reset_cb real']);
+    const cpp = scan('x.cpp', 'void f(Ops *o) { o->reset_cb = nullptr; }', [r]);
+    expect(cpp.filter((s) => s.role === 'receive')).toEqual([]);
+  });
+
   it('keeps a call or cast handler unresolved', () => {
     const timer = fixtureRules.filter((r) => r.id === 'timer');
     const [s] = scan(

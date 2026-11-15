@@ -186,6 +186,10 @@ Status is tracked per reactor of a send site:
 
 - A handler named at the send site itself (step 2) is **confirmed** when it resolves to exactly
   one definition.
+  The exception: when the send site has a key, its rule has receive matchers, and no receive site
+  has that key, the handler is **unconfirmed** and the pairing is marked as missing its receive
+  site, because the handler only runs from the dispatcher. An assignment of `NULL`, `nullptr` or
+  `0` to a handler field is not a registration.
 - A receive site matched by key (step 1), and a handler reached through it (step 3), are
   **confirmed** only when a keyed connection covers that rule and key. Otherwise they are
   **unconfirmed**, however many definitions the handler has. This keeps a field-name clash from

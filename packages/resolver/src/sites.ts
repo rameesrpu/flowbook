@@ -141,6 +141,19 @@ export function collectSites(
     return null;
   };
 
+  /** `NULL`, `nullptr` or `0`, possibly wrapped in `&` or parentheses: a slot being cleared. */
+  const isNull = (node: Node): boolean => {
+    if (node.type === 'parenthesized_expression') {
+      const inner = node.namedChildren.find((n) => n !== null && n.type !== 'comment');
+      return !!inner && isNull(inner);
+    }
+    if (node.type === 'pointer_expression' && node.child(0)?.text === '&') {
+      const arg = node.childForFieldName('argument');
+      return !!arg && isNull(arg);
+    }
+    return node.text === 'NULL' || node.text === 'nullptr' || node.text === '0';
+  };
+
   const handlerOf = (node: Node | null | undefined): Partial<Site> => {
     if (!node) return {};
     const id = unwrap(node);
@@ -176,8 +189,11 @@ export function collectSites(
   const visitAssign = (field: Node, right: Node | null) => {
     for (const c of assigns) {
       if (!c.re.test(field.text) || !('assign' in c.matcher)) continue;
-      if (c.matcher.as === 'handler') add(c, field, { key: field.text, ...handlerOf(right) });
-      else if (right) add(c, field, { key: compact(right) });
+      if (c.matcher.as === 'handler') {
+        // Clearing a slot registers nothing.
+        if (right && isNull(right)) continue;
+        add(c, field, { key: field.text, ...handlerOf(right) });
+      } else if (right) add(c, field, { key: compact(right) });
     }
   };
 

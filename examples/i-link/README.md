@@ -39,7 +39,7 @@ Open `examples/i-link` (not the repository root) in VS Code to see the lenses.
 `flowbook sites --root examples/i-link` ends with:
 
 ```
-job: 51 send, 39 receive, 38 keys paired (38 confirmed), 11 unpaired
+job: 51 send, 39 receive, 36 keys paired (36 confirmed), 11 unpaired, 2 without receive site
 mbox: 9 send, 4 receive, 4 sends paired (4 confirmed), 8 unpaired
 dl-event: 21 send, 10 receive, 8 keys paired (8 confirmed), 5 unpaired
 ```
@@ -48,10 +48,12 @@ Against the grep counts in the design (27 job types at `iolink_post_job_with_typ
 39 `case IOLINK_JOB_` labels):
 
 - The 34 calls to `iolink_post_job_with_type_and_callback` carry the same 27 constant job types,
-  plus two parameters (`type`, `job_type`) inside wrappers. All 27 have a reactor; 26 reach their
-  `case` in `iolink_main`. `IOLINK_JOB_AL_EVENT_REQ` (posted by `AL_Event_req`, which nothing
-  calls) has no `case`, so only its handler is listed; at run time the job would hit the
-  dispatcher's `default` assertion.
+  plus two parameters (`type`, `job_type`) inside wrappers. 26 of the 27 reach their `case` in
+  `iolink_main`. `IOLINK_JOB_AL_EVENT_REQ` (posted by `AL_Event_req`, which nothing calls) has no
+  `case`: at run time the job would hit the dispatcher's `default` assertion, so its handler is
+  listed as unconfirmed and the send line ends with `· no receive site for IOLINK_JOB_AL_EVENT_REQ`.
+  It is one of the 2 keys counted "without receive site"; the other is the `job_type` parameter
+  of the `iolink_ode.c:447` wrapper, whose callers are matched by the wrapper matchers.
 - The wrapper matchers (`init_and_post_job`, `ode_SMI_rw_req`, `ode_SMI_DeviceReadWrite_req`)
   and `job->type = …` add the 9 SMI job types, `PD_EVENT` and `EXIT`: 37 job types are sent in
   all, 36 reach a `case`.

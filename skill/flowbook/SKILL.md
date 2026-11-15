@@ -224,7 +224,10 @@ add a connection); on a receive line it means nothing sends to it. `← 1 sender
 site that something posts to. The summary `job: 2 send, 3 receive, 2 keys paired (1 confirmed),
 1 unpaired` counts keys (or sends, for rules without keys); a key is confirmed when all its
 reactors are. A handler named at the send site with one definition is confirmed without a
-record; reactors found by key need a keyed connection.
+record; reactors found by key need a keyed connection. When the rule has `receive` matchers but
+no receive site has the send's key, the send line ends with `· no receive site for <KEY>`, its
+handler is unconfirmed (the dispatcher has nothing that runs it), and the summary counts the key
+as `N without receive site` instead of paired: look for a missing `case` or a rule that misses it.
 
 ### Known limits
 

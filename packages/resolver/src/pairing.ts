@@ -38,6 +38,12 @@ export interface Pairing {
   context?: string;
   /** Set when the send site's handler has several candidate definitions and no connection picked one. */
   candidates?: number;
+  /**
+   * Set when the send site has a key, its rule has receive matchers, and no receive site of the
+   * rule has that key or is joined by an anchored connection: whatever the handler is, the
+   * dispatcher has nothing that runs it. Its handler reactors are then unconfirmed.
+   */
+  missingReceive?: true;
 }
 
 export interface ConnectionIndex {
@@ -58,6 +64,8 @@ export interface RuleSummary {
   paired: number;
   confirmed: number;
   unpaired: number;
+  /** Units (keys, or send sites when unkeyed) with reactors but no receive site; not `paired`. */
+  missingReceive: number;
   keyed: boolean;
 }
 
@@ -220,9 +228,12 @@ function keyReactors(receives: Site[], confirmed: boolean): Reactor[] {
   return receives.map((r) => ({ ...siteTarget(r), via: 'key', key: r.key, confirmed }));
 }
 
-/** Pairing step 2: definitions of the handler named at the send site. */
-function handlerReactors(candidates: Definition[]): Reactor[] {
-  const confirmed = candidates.length === 1;
+/**
+ * Pairing step 2: definitions of the handler named at the send site. Confirmed only when there is
+ * exactly one and the send is not missing its receive site.
+ */
+function handlerReactors(candidates: Definition[], missingReceive: boolean): Reactor[] {
+  const confirmed = candidates.length === 1 && !missingReceive;
   return candidates.map((d) => ({ ...definitionTarget(d), via: 'handler', confirmed }));
 }
 
@@ -296,11 +307,16 @@ function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[]
 
   const byKey = keyReceives(ctx, send);
   const anchored = anchoredReactors(ctx, send, covering, candidates);
+  const missingReceive =
+    send.key !== undefined &&
+    !!rule?.receive?.length &&
+    byKey.length === 0 &&
+    anchored.receives.length === 0;
   const reactors = mergeReactors([
     ...keyReactors(byKey, confirms),
     ...registeredReactors(ctx, byKey, confirms),
     ...anchored.reactors,
-    ...(anchored.picked ? [] : handlerReactors(candidates)),
+    ...(anchored.picked ? [] : handlerReactors(candidates, missingReceive)),
   ]);
 
   const pairing: Pairing = { send, reactors };
@@ -313,6 +329,7 @@ function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[]
   const context = connection?.context ?? rule?.context;
   if (context !== undefined) pairing.context = context;
   if (candidates.length > 1 && !anchored.picked) pairing.candidates = candidates.length;
+  if (missingReceive) pairing.missingReceive = true;
   return { pairing, reached: [...byKey, ...anchored.receives] };
 }
 
@@ -422,7 +439,9 @@ export function sendersOf(index: ConnectionIndex, target: { file: string; line: 
 
 /**
  * Counts per rule. A pairing unit is a key when the send site has one, otherwise the send site
- * itself; `paired` counts units with a reactor, `confirmed` those whose reactors are all confirmed.
+ * itself. A unit with reactors counts as `missingReceive` when every send of it is missing its
+ * receive site, otherwise as `paired`; `confirmed` counts paired units whose reactors are all
+ * confirmed.
  */
 export function ruleSummaries(index: ConnectionIndex, connections: Connections): RuleSummary[] {
   return connections.rules.map((rule) => {
@@ -431,9 +450,14 @@ export function ruleSummaries(index: ConnectionIndex, connections: Connections):
     for (const p of pairings) push(units, p.send.key ?? p.send, p);
     let paired = 0;
     let confirmed = 0;
+    let missingReceive = 0;
     for (const unit of units.values()) {
       const reactors = unit.flatMap((p) => p.reactors);
       if (reactors.length === 0) continue;
+      if (unit.every((p) => p.missingReceive)) {
+        missingReceive++;
+        continue;
+      }
       paired++;
       if (reactors.every((r) => r.confirmed)) confirmed++;
     }
@@ -446,6 +470,7 @@ export function ruleSummaries(index: ConnectionIndex, connections: Connections):
       paired,
       confirmed,
       unpaired: silentSends + silentReceives,
+      missingReceive,
       keyed: pairings.some((p) => p.send.key !== undefined),
     };
   });

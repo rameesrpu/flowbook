@@ -40,7 +40,7 @@ Open `examples/p-net` (not the repository root) in VS Code to see the lenses.
 
 ```
 sched: 42 send, 0 receive, 41 sends paired (41 confirmed), 1 unpaired
-app-cb: 16 send, 14 receive, 14 keys paired (0 confirmed), 2 unpaired
+app-cb: 16 send, 13 receive, 13 keys paired (0 confirmed), 3 unpaired
 bg: 10 send, 11 receive, 10 keys paired (10 confirmed), 0 unpaired
 ```
 
@@ -64,8 +64,7 @@ Against the grep counts in the design (17 scheduler handlers, 16 `fspm_cfg` call
 | `pf_scheduler.c:267` sched send `cb`            | `pf_scheduler_restart` forwarding its own parameter; its callers are matched directly |
 | `pf_fspm.c:1363` app-cb send `alarm_ack_cnf_cb` | the test fixture does not register it                                                 |
 | `pf_plugsm.c:117` app-cb send `sm_released_cb`  | the test fixture does not register it                                                 |
-
-`reset_cb` pairs with the fixture's `reset_cb = NULL`, which is a registration of nothing.
+| `pf_fspm.c:1389` app-cb send `reset_cb`         | the test fixture only assigns `NULL`, which is not a registration                     |
 
 ## Scan times
 

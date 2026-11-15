@@ -153,6 +153,25 @@ describe('sites', () => {
     );
   });
 
+  it('flags a keyed post whose key has no receive site', () => {
+    edit('src/rt/jobs.c', 'case JOB_WRITE_CNF:', '');
+    sites(ctx);
+    expect(out.find((l) => l.includes('job send JOB_WRITE_CNF → '))).toMatch(
+      /→ write_done \? · no receive site for JOB_WRITE_CNF$/,
+    );
+    expect(out.find((l) => l.startsWith('job: '))).toMatch(/, 1 without receive site$/);
+    out.length = 0;
+    sites(ctx, { json: true });
+    const data = JSON.parse(out.join('\n')) as {
+      sites: { key?: string; role: string; missingReceive?: boolean }[];
+      rules: { rule: string; missingReceive: number }[];
+    };
+    const send = data.sites.find((s) => s.role === 'send' && s.key === 'JOB_WRITE_CNF')!;
+    expect(send.missingReceive).toBe(true);
+    expect(data.sites.find((s) => s.key === 'JOB_READ_CNF')!.missingReceive).toBeUndefined();
+    expect(data.rules.find((r) => r.rule === 'job')!.missingReceive).toBe(1);
+  });
+
   it('--unpaired lists only unpaired sites', () => {
     sites(ctx, { unpaired: true });
     const lines = out.filter((l) => /^\S+:\d+: /.test(l));

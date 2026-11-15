@@ -99,6 +99,18 @@ function common(pairings: Pairing[], pick: (p: Pairing) => string | undefined) {
 }
 
 /**
+ * `no case for KEY` when the rule's receive sites found in the root are all `case` labels,
+ * otherwise `no receive site for KEY`. The index carries sites, not rules, so the matcher kind is
+ * read from the rule's other receive sites.
+ */
+function missingReceiveText(p: Pairing, sites: Site[]): string {
+  const receives = sites.filter((s) => s.role === 'receive' && s.rule === p.send.rule);
+  const what =
+    receives.length > 0 && receives.every((s) => s.matcher === 'case') ? 'case' : 'receive site';
+  return `no ${what} for ${p.send.key}`;
+}
+
+/**
  * Title of the lens on a line of send sites (usually one). `sites` are the index's sites; the
  * receive site behind a reactor says whether it is a `case` or `test`, which the title names with
  * its key. A connection title or context is shown when every pairing on the line shares it.
@@ -122,8 +134,13 @@ export function sendLensTitle(pairings: Pairing | Pairing[], sites: Site[]): str
   } else body = `${shown.length} reactors: ${names(shown).join(', ')}`;
   const title = common(list, (p) => p.title);
   const prefix = title === undefined ? '' : `${title}: `;
-  const unconfirmed = shown.some((r) => !r.confirmed) ? ' · unconfirmed' : '';
-  return `↳ ${prefix}${body}${unconfirmed}`;
+  const missing = list.find((p) => p.missingReceive);
+  const status = missing
+    ? ` · ${missingReceiveText(missing, sites)}`
+    : shown.some((r) => !r.confirmed)
+      ? ' · unconfirmed'
+      : '';
+  return `↳ ${prefix}${body}${status}`;
 }
 
 /** Ready-to-paste instructions for a coding agent to pair a send site nothing reacts to. */

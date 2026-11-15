@@ -216,7 +216,8 @@ function siteLine(index: ConnectionIndex, site: Site, unpaired: boolean): string
   const head = `${site.file}:${site.line + 1}: ${what}`;
   if (site.role === 'send') {
     const p = index.pairings.find((x) => x.send === site)!;
-    return `${head} → ${p.reactors.length ? reactorText(index, p) : 'unpaired'}`;
+    const missing = p.missingReceive ? ` · no receive site for ${site.key}` : '';
+    return `${head} → ${p.reactors.length ? reactorText(index, p) : 'unpaired'}${missing}`;
   }
   if (unpaired) return `${head} → unpaired`;
   const n = sendersOfSite(index, site).length;
@@ -262,7 +263,11 @@ export function sites(
       };
       if (s.role === 'send') {
         const p = index.pairings.find((x) => x.send === s)!;
-        return { ...row, reactors: p.reactors.map((r) => ({ ...r, line: r.line + 1 })) };
+        return {
+          ...row,
+          reactors: p.reactors.map((r) => ({ ...r, line: r.line + 1 })),
+          ...(p.missingReceive ? { missingReceive: true } : {}),
+        };
       }
       return {
         ...row,
@@ -276,7 +281,8 @@ export function sites(
   for (const r of summaries) {
     ctx.io.out(
       `${r.rule}: ${r.send} send, ${r.receive} receive, ${r.paired} ${r.keyed ? 'keys' : 'sends'} paired ` +
-        `(${r.confirmed} confirmed), ${r.unpaired} unpaired`,
+        `(${r.confirmed} confirmed), ${r.unpaired} unpaired` +
+        (r.missingReceive > 0 ? `, ${r.missingReceive} without receive site` : ''),
     );
   }
   return 0;

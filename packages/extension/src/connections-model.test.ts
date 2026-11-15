@@ -80,6 +80,25 @@ describe('documentLenses', () => {
     );
   });
 
+  it('says which case is missing when the dispatcher has none for the key', () => {
+    const text = read(JOBS).replace('case JOB_WRITE_CNF:', '');
+    const lens = lensesOf(JOBS, text).find((l) => l.startsWith('void request_write(void)'))!;
+    expect(lens).toMatch(/ · no case for JOB_WRITE_CNF$/);
+    expect(lens).not.toContain('unconfirmed');
+  });
+
+  it('says a receive site is missing for a rule whose receive matchers are not cases', () => {
+    const jsonl = rule({
+      id: 'ev',
+      send: [{ call: 'post', key: 1, handler: 2 }],
+      receive: [{ test: 'E_.*' }],
+    });
+    const src =
+      'void post(int k, void (*f)(void));\nvoid x_cb(void) {}\nvoid s(void) { post(E_X, x_cb); }\nvoid r(int f) { if (f & E_Y) {} }\n';
+    const [lens] = inlineLenses(jsonl, { 'a.c': src }, 'a.c').filter((l) => l.line === 2);
+    expect(lens!.title).toBe('↳ x_cb · no receive site for E_X');
+  });
+
   it('titles a handler-only post', () => {
     expect(lensesOf(JOBS)).toContain('void start_poll(void) {  | ↳ on_poll_timeout');
   });
