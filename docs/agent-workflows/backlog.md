@@ -176,6 +176,71 @@ start by writing a real mailbox flow against the current schema to confirm the f
 Out of scope for now: statecharts (AR/alarm state machines); single scenarios through them still
 fit as flows.
 
+## Track F — Connection points follow-ups (`packages/core`, `packages/resolver`, `packages/cli`, `packages/extension`)
+
+Found on 2026-11-15 by writing rules for two real protocol stacks (`examples/i-link`,
+`examples/p-net`) and by the final review. F1–F6 change the rule format, so they need a short
+design first (update `core/src/connections.ts`, `schema.md`, the fixture and both examples
+together). F7 items are small and independent.
+
+### F1. Keys from a struct member, for mailbox handles
+
+- **Problem:** the same mailbox is written `master->mbox_avail` in one function and
+  `port->master->mbox_avail` in another, so keys compared as text never match, and anchored
+  connections pair per function, which is too coarse when one function uses three mailboxes.
+  8 of i-link's 13 mailbox sites stay unpaired.
+- **Approach:** a matcher option that takes the last member name of the argument as the key
+  (`mbox`, `mbox_avail`), the same idea that already works for callback slots.
+
+### F2. Wrapper functions
+
+- **Problem:** when a key or handler is a parameter of the enclosing function, extra send
+  matchers on the wrapper fix the pairing, but the call inside the wrapper stays an unpaired site
+  with a "no reactor found" lens.
+- **Approach:** drop a site whose key or handler is a parameter of its enclosing function, or
+  derive the matcher for that function automatically.
+
+### F3. Filter on key values
+
+- **Problem:** `{"assign":"type","as":"key"}` is needed for jobs posted without a helper, but it
+  also matches resets such as `job->type = JOB_NONE`, which become unpaired sends.
+- **Approach:** an optional key regular expression on a matcher.
+
+### F4. Confirming a uniform dispatcher in one record
+
+- **Problem:** i-link needed 44 keyed connections and p-net 10, each verified by reading the
+  same `switch`. That is boilerplate and tempts an agent to generate them unread.
+- **Approach:** a keyed connection whose `key` is a regular expression, or a confirmation scoped
+  to a receive function.
+
+### F5. Excluding one receive site, and run-time flag values
+
+- **Problem:** a `test` matcher also matches a condition in a debug-log block, and a keyed
+  connection cannot exclude one site. Separately, a flag held in a variable set from
+  configuration can only be paired by an anchored connection, which joins it to every flag test.
+- **Approach:** a connection form with an anchored send and a keyed receive; an exclusion list.
+
+### F6. Callback slots without the application
+
+- Callback-slot pairing is only useful when the application is in the same Flowbook root; p-net's
+  callbacks pair only with its test fixture. Document this in the skill; consider a root that
+  spans several directories.
+
+### F7. Small items
+
+- An added anchored connection clears the whole scan cache (`rulesKeyOf` includes anchored files).
+- `isReceiveThenHandler` can combine the key reactor of one send site with the handler of another
+  on the same line.
+- `sites` looks pairings up per row (O(sites × pairings)); build a map.
+- A keyless handler send prints the handler in the key position of the `sites` line.
+- The connection lens provider's subscriptions are never disposed (same as `FlowLenses`).
+- A file whose parse throws is re-read on every scan; a skipped file that defines a handler stops
+  contributing definitions.
+- `check`'s summary line does not count rules or connections; symlinked directories are not
+  scanned.
+- Measure the scan inside VS Code on a root with several thousand files (only the CLI and
+  in-process timings were measured).
+
 ## Decisions already made (don't re-litigate)
 
 Agents write, humans read (UI read-only + "copy agent prompt"); one JSONL file per flow;
