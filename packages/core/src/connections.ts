@@ -16,28 +16,34 @@ const KeyMember = z
 const Keys = Name.optional().describe('Regular expression the derived key must match entirely');
 const Files = z.array(z.string().min(1)).optional().describe('Globs limiting where it applies');
 
+export const CallMatcher = z
+  .object({
+    call: Name,
+    key: Position.optional(),
+    handler: Position.optional(),
+    keyMember: KeyMember,
+    keys: Keys,
+    files: Files,
+  })
+  .strict();
+export type CallMatcher = z.infer<typeof CallMatcher>;
+
+export const AssignMatcher = z
+  .object({
+    assign: Name,
+    as: z.enum(['key', 'handler']),
+    keyMember: KeyMember,
+    keys: Keys,
+    files: Files,
+  })
+  .strict();
+export type AssignMatcher = z.infer<typeof AssignMatcher>;
+
 export const Matcher = z.union([
-  z
-    .object({
-      call: Name,
-      key: Position.optional(),
-      handler: Position.optional(),
-      keyMember: KeyMember,
-      keys: Keys,
-      files: Files,
-    })
-    .strict(),
+  CallMatcher,
   z.object({ case: Name, files: Files }).strict(),
   z.object({ test: Name, files: Files }).strict(),
-  z
-    .object({
-      assign: Name,
-      as: z.enum(['key', 'handler']),
-      keyMember: KeyMember,
-      keys: Keys,
-      files: Files,
-    })
-    .strict(),
+  AssignMatcher,
   z.object({ invoke: Name, files: Files }).strict(),
 ]);
 export type Matcher = z.infer<typeof Matcher>;

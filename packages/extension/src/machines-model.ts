@@ -28,15 +28,16 @@ const spot = (t: Target) =>
   t.symbol ?? `${t.file.slice(t.file.lastIndexOf('/') + 1)}:${t.line + 1}`;
 
 /**
- * `↳ <title>: [label ]FROM → TO on EVENT|in FUNCTION[ if GUARD][ · sets off RULE → REACTOR (+N
- * more)]`, worded like `flowbook states`. State names drop the machine's prefix; an unknown
- * source reads `any state`.
+ * `↳ <title>: [label ]FROM[, FROM…] → TO on EVENT|in FUNCTION[ if GUARD][ · sets off RULE →
+ * REACTOR (+N more)]`, worded like `flowbook states`; `froms` (default `t.from`) are the sources
+ * of the transitions one lens joins. State names drop the machine's prefix; an unknown source
+ * reads `any state`.
  */
-export function transitionLensTitle(m: MachineView, t: Transition): string {
+export function transitionLensTitle(m: MachineView, t: Transition, froms = [t.from]): string {
   const short = (s: string) =>
     s === '*' ? 'any state' : s.startsWith(m.prefix) ? s.slice(m.prefix.length) : s;
   const label = t.label !== undefined ? `${t.label} ` : '';
-  let title = `↳ ${m.title}: ${label}${short(t.from)} → ${short(t.to)}`;
+  let title = `↳ ${m.title}: ${label}${froms.map(short).join(', ')} → ${short(t.to)}`;
   if (t.event !== undefined) title += ` on ${t.event}`;
   else if (t.site.symbol !== undefined) title += ` in ${t.site.symbol}`;
   if (t.guard !== undefined) title += ` if ${t.guard}`;
@@ -50,19 +51,36 @@ export function transitionLensTitle(m: MachineView, t: Transition): string {
 }
 
 /**
- * One lens per transition whose site (set call or table row) is in `rel`, in line order. `sites`
- * are the connection index's sites, used to pick the shown reactors as `Go to Reactor` does.
+ * One lens per transition whose site (set call or table row) is in `rel`, in line order;
+ * transitions with the same site, target, event, guard and label share one lens that lists
+ * their sources. `sites` are the connection index's sites, used to pick the shown reactors as
+ * `Go to Reactor` does.
  */
 export function machineLenses(mi: MachineIndex, rel: string, sites: Site[] = []): MachineLens[] {
   const out: MachineLens[] = [];
-  for (const m of mi.machines)
-    for (const t of m.transitions)
-      if (t.site.file === rel)
-        out.push({
-          line: t.site.line,
-          title: transitionLensTitle(m, t),
-          targets: reactorTargets(t.triggers, sites),
-        });
+  for (const m of mi.machines) {
+    const groups = new Map<string, { t: Transition; froms: string[] }>();
+    for (const t of m.transitions) {
+      if (t.site.file !== rel) continue;
+      const key = JSON.stringify([
+        t.site.line,
+        t.site.column,
+        t.to,
+        t.event ?? null,
+        t.guard ?? null,
+        t.label ?? null,
+      ]);
+      const g = groups.get(key);
+      if (!g) groups.set(key, { t, froms: [t.from] });
+      else if (!g.froms.includes(t.from)) g.froms.push(t.from);
+    }
+    for (const { t, froms } of groups.values())
+      out.push({
+        line: t.site.line,
+        title: transitionLensTitle(m, t, froms),
+        targets: reactorTargets(t.triggers, sites),
+      });
+  }
   return out.sort((a, b) => a.line - b.line);
 }
 

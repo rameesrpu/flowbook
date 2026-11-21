@@ -432,6 +432,25 @@ describe('states', () => {
     expect(states(ctx)).toBe(1);
     expect(err.some((l) => l.includes('machines.jsonl'))).toBe(true);
   });
+  it('exits 1 when the machine index has errors, and prints them', () => {
+    edit('.flowbook/machines.jsonl', '"symbol":"dev_init"', '"symbol":"gone"');
+    expect(states(ctx)).toBe(1);
+    expect(err.some((l) => l.includes('no definition for src/rt/sm_dev.c#gone'))).toBe(true);
+    out.length = 0;
+    expect(states(ctx, { json: true })).toBe(1);
+    const data = JSON.parse(out.join('\n')) as { diagnostics: { message: string }[] };
+    expect(data.diagnostics.map((d) => d.message)).toContain(
+      'no definition for src/rt/sm_dev.c#gone',
+    );
+  });
+
+  it('includes file-level diagnostics in json', () => {
+    edit('.flowbook/machines.jsonl', '"id":"dev"', '"idd":"dev"');
+    expect(states(ctx, { json: true })).toBe(1);
+    const data = JSON.parse(out.join('\n')) as { diagnostics: { file: string }[] };
+    expect(data.diagnostics.length).toBeGreaterThan(0);
+    expect(data.diagnostics.every((d) => d.file === '.flowbook/machines.jsonl')).toBe(true);
+  });
 });
 
 describe('check with machines', () => {

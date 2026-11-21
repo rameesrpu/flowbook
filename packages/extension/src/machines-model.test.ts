@@ -153,6 +153,25 @@ describe('machineLenses', () => {
     ]);
   });
 
+  it('joins the sources of transitions with the same site, target, event and guard', () => {
+    const m: MachineView = {
+      ...machine,
+      transitions: [
+        transition({ from: 'CMSM_W_PEIND', to: 'CMSM_ABORT', event: 'EV' }),
+        transition({ from: 'CMSM_W_ARDY', to: 'CMSM_ABORT', event: 'EV' }),
+        transition({ from: 'CMSM_W_ARDY', to: 'CMSM_ABORT', event: 'EV', guard: 'x' }),
+        transition({ from: 'CMSM_IDLE', to: 'CMSM_ABORT', event: 'EV2' }),
+      ],
+    };
+    const lenses = machineLenses({ machines: [m], diagnostics: [] }, site.file);
+    expect(lenses.map((l) => l.title)).toEqual([
+      '↳ CM state machine: W_PEIND, W_ARDY → ABORT on EV',
+      '↳ CM state machine: W_ARDY → ABORT on EV if x',
+      '↳ CM state machine: IDLE → ABORT on EV2',
+    ]);
+    expect(lenses.every((l) => l.line === site.line)).toBe(true);
+  });
+
   it('has no lenses for a file without transitions', () => {
     expect(machineLenses(index, 'src/rt/jobs.c')).toEqual([]);
   });

@@ -12,7 +12,7 @@ import { Panels } from './panel.js';
 import { FlowsTree } from './tree.js';
 
 const SOURCE_GLOB = '**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,inl,ipp}';
-/** Watched for reloads; covers config.jsonl, connections.jsonl and flows/*.jsonl. */
+/** Watched for reloads; covers config.jsonl, connections.jsonl, machines.jsonl and flows/*.jsonl. */
 const FLOWBOOK_GLOB = '**/.flowbook/**/*.jsonl';
 
 /** What `activate` returns; used by the integration tests. */

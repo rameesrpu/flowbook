@@ -43,7 +43,12 @@ export interface FileScan {
  * result (`site.rule` is the `id`). `onNode` sees every `case_statement` and `init_declarator`.
  */
 export interface SiteHooks {
-  matchers: { id: string; matcher: Matcher; onSite(site: Site, at: Node): void }[];
+  /** `keyNode`: the expression the key was read from, when there is one. */
+  matchers: {
+    id: string;
+    matcher: Matcher;
+    onSite(site: Site, at: Node, keyNode?: Node): void;
+  }[];
   onNode(node: Node): void;
 }
 
@@ -55,7 +60,7 @@ interface Compiled {
   /** The matcher's `keys` filter. */
   keys?: RegExp;
   matcher: Matcher;
-  sink?: (site: Site, at: Node) => void;
+  sink?: (site: Site, at: Node, keyNode?: Node) => void;
 }
 
 const CONDITIONS = new Set(['if_statement', 'while_statement', 'conditional_expression']);
@@ -164,7 +169,7 @@ export function collectSites(
   const functions = symbols.filter((s) => s.kind === 'function');
   const out: Site[] = [];
 
-  const add = (c: Compiled, at: Node, extra: Partial<Site> = {}) => {
+  const add = (c: Compiled, at: Node, extra: Partial<Site> = {}, keyNode?: Node) => {
     if (c.keys && (extra.key === undefined || !c.keys.test(extra.key))) return;
     const line = at.startPosition.row;
     let enclosing: SymbolInfo | undefined;
@@ -186,7 +191,7 @@ export function collectSites(
       site.sig = enclosing.sig;
     }
     Object.assign(site, extra);
-    if (c.sink) c.sink(site, at);
+    if (c.sink) c.sink(site, at, keyNode);
     else out.push(site);
   };
 
@@ -297,7 +302,7 @@ export function collectSites(
       if (keyArg) extra.key = keyOf(keyArg, keyMember === true);
       if (handler !== undefined) Object.assign(extra, handlerOf(handlerArg));
       Object.assign(extra, forwardsOf(c, fn, key !== undefined ? keyArg : handlerArg));
-      add(c, fn, extra);
+      add(c, fn, extra, keyArg);
     }
   };
 
@@ -310,7 +315,7 @@ export function collectSites(
         add(c, field, { key: field.text, ...handlerOf(right) });
       } else if (right) {
         const key = keyOf(right, c.matcher.keyMember === true);
-        add(c, field, { key, ...forwardsOf(c, field, right) });
+        add(c, field, { key, ...forwardsOf(c, field, right) }, right);
       }
     }
   };

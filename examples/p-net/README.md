@@ -109,7 +109,8 @@ PNET_EVENT_ABORT`, and `RUN → IDLE in pf_cmsm_timeout` (source from the timeou
   (82 %) have a known source, short of the 90 % target. With the scope `cmdev-connect` 20 of 22
   (91 %): `pf_cmdev_rm_connect_ind` and `pf_cmdev_cm_connect_rsp_neg` (read: the AR is zeroed by
   `pf_ar_allocate` just before `pf_cmdev_rm_connect_ind`, and `…_rsp_neg` is only called from
-  its failure branch, so both run in `POWER_ON`).
+  its failure branch, so both run in `POWER_ON`). With the genuine any-state abort
+  `pf_cmdev_cm_abort` left out: 18 of 21 (86 %) without scopes, 20 of 21 (95 %) with them.
 
 Unknown source states (7):
 
@@ -142,7 +143,13 @@ tests); the prefilter lets 29 of them through to the parser.
 | second `scanRoot` with the same cache (nothing changed)                         | 12 ms  | < 1 s  |
 | `buildConnectionIndex` over all scans                                           | 0.7 ms |        |
 | rescan of `pf_cmrpc.c` (5,681 lines) plus a new index, as for an unsaved edit   | 102 ms |        |
-| cold sites with machines (2026-11-21)                                           | TBD    |        |
+| cold `sites` with machines, relative to rules only (2026-11-21, under load)     | +4.5 % | ≤ 10 % |
+
+The 2026-11-21 row comes from alternating runs with and without `machines.jsonl` (9 each) on a
+busy machine (load average 3–5): medians 3.22 s with machines, 3.08 s without; cold `states`
+2.93 s. Two earlier sets gave +2.4 % and +7.7 %. Absolute times on this laptop moved between
+1.4 s and 3.1 s with load during the day, so only the relative cost is meaningful; re-time on a
+quiet machine.
 
 Parsing dominates the cold scan. A rule whose names have no literal fragment (every file is
 parsed) takes the first scan to 1.5 s. The machines let 3 more files through the prefilter (32

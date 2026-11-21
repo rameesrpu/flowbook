@@ -181,7 +181,14 @@ every scan. Names are regular expressions that must match the whole name.
 
 At least one of `set` and `tables` is required. A `set` matcher is a `call` or `assign` matcher as
 in `connections.jsonl`, and must name a key (a call needs `key`, an assign needs `"as": "key"`);
-`keyMember`, `keys` and `files` are allowed, `handler` is not.
+`keyMember`, `keys` and `files` are allowed, `handler` is not. An `assign` matches field
+assignments only (`x->state = …`). A key `c ? A : B` gives one transition per branch when both
+match `states`.
+
+The source state of a set site (`via` in `flowbook states --json`) is the first of: `case` (an
+enclosing `case` label matching `states`), `test` (an enclosing `if (… == STATE)`), `scope` (a
+`scope` record), `caller` (the function is called from one state `case` in the same file), else
+`*` with `none`. Table rows use `table` (the `from` map) or `none`.
 
 A table: `{"rows": re, "event": slot, "to": slot, "action"?: slot, "from": {array: state}}`.
 `rows` matches the array names holding transition rows. A slot is a 1-based position in the row
@@ -190,13 +197,13 @@ its rows, and every value must match `states`.
 
 ### `scope`
 
-| Field     | Type      | Notes                                                           |
-| --------- | --------- | --------------------------------------------------------------- |
-| `kind`    | `"scope"` |                                                                 |
-| `id`      | id        |                                                                 |
-| `machine` | id        | the machine it belongs to (in this file)                        |
-| `state`   | string    | source state of every set site inside `in`; must match `states` |
-| `in`      | anchor[]  | at least one function (`file` + `symbol`, `sig` if overloaded)  |
+| Field     | Type      | Notes                                                                                     |
+| --------- | --------- | ----------------------------------------------------------------------------------------- |
+| `kind`    | `"scope"` |                                                                                           |
+| `id`      | id        |                                                                                           |
+| `machine` | id        | the machine it belongs to (in this file)                                                  |
+| `state`   | string    | source state of set sites inside `in` without a state `case` or test; must match `states` |
+| `in`      | anchor[]  | at least one function (`file` + `symbol`, `sig` if overloaded)                            |
 
 ```jsonl
 {"kind":"machine","id":"cmsm","title":"CM state machine","states":"PF_CMSM_STATE_.*","events":"PNET_EVENT_.*","set":[{"call":"pf_cmsm_set_state","key":2}],"files":["src/src/device/pf_cmsm.c"],"context":"p-net main thread"}

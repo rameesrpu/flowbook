@@ -219,6 +219,56 @@ void sm(ar_t *ar)
     expect(mi.diagnostics).toEqual([]);
   });
 
+  it('counts calls nested in ifs and event cases of a state case as callers', () => {
+    const helper = `static void go_run(ar_t *ar)
+{
+  set_state (ar, ST_RUN);
+}
+`;
+    const twice = `void sm(ar_t *ar, int x)
+{
+  switch (ar->state) {
+  case ST_A:
+    go_run (ar);
+    break;
+  case ST_B:
+    if (x) go_run (ar);
+    break;
+  }
+}
+`;
+    expect(lines(build({ 'src/sm.c': helper + twice }))).toEqual(['2 * -> ST_RUN none []']);
+    const nested = `void sm(ar_t *ar, int ev)
+{
+  switch (ar->state) {
+  case ST_A:
+    switch (ev) {
+    case EV_GO:
+      go_run (ar);
+      break;
+    }
+    break;
+  }
+}
+`;
+    expect(lines(build({ 'src/sm.c': helper + nested }))).toEqual(['2 ST_A -> ST_RUN caller []']);
+  });
+
+  it('counts only the triggers inside the consequence of the test if', () => {
+    const text = `void f(ar_t *ar)
+{
+  timer_add (ar, before);
+  if (ar->state == ST_A) {
+    timer_add (ar, inside);
+    if (ar->cmd == 1) set_state (ar, ST_C);
+  }
+}
+`;
+    expect(lines(build({ 'src/sm.c': text }))).toEqual([
+      '5 ST_A -> ST_C test if ar->cmd==1 [inside]',
+    ]);
+  });
+
   it('counts the same state twice as one caller state, and ignores calls from another file', () => {
     const helper = `void go_run(ar_t *ar)
 {

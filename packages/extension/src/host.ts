@@ -19,7 +19,7 @@ import {
   type RootState,
 } from './model.js';
 
-const FLOWBOOK_GLOB = '**/.flowbook/{config.jsonl,connections.jsonl,flows/*.jsonl}';
+const FLOWBOOK_GLOB = '**/.flowbook/{config.jsonl,connections.jsonl,machines.jsonl,flows/*.jsonl}';
 
 /** Thrown from a scan's pause once a newer reload has started. */
 class Superseded extends Error {}

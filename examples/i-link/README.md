@@ -147,7 +147,7 @@ Unknown source states (5):
 "Sets off" counts every send in the per-state function, so all transitions out of a function
 that has one `os_event_set` list it, whichever branch posts it (a known limit, on the backlog).
 
-Cold sites with machines: TBD. The machines parse no extra files.
+Cold `sites` with machines (2026-11-21, busy machine, 7 alternating runs): median 2.57 s with machines, 2.59 s without. The machines parse no extra files.
 
 ## Licence
 

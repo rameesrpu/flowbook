@@ -308,10 +308,13 @@ export function lensTargets(
   return out;
 }
 
-/** Root directory for a `.flowbook/{config,connections}.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
+/** Root directory for a `.flowbook/{config,connections,machines}.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
 export function rootOfFlowbookFile(path: string): string | undefined {
   const p = path.split('\\').join('/');
-  const m = /^(.*)\/\.flowbook\/(?:config\.jsonl|connections\.jsonl|flows\/[^/]+\.jsonl)$/.exec(p);
+  const m =
+    /^(.*)\/\.flowbook\/(?:config\.jsonl|connections\.jsonl|machines\.jsonl|flows\/[^/]+\.jsonl)$/.exec(
+      p,
+    );
   return m ? m[1] || '/' : undefined;
 }
 

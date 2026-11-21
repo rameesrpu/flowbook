@@ -120,43 +120,77 @@ function commentText(node: Node): string {
 
 const NAMES = new Set(['identifier', 'qualified_identifier']);
 
+const unwrapped = (n: Node): Node => {
+  let x = n;
+  while (x.type === 'parenthesized_expression' || x.type === 'cast_expression') {
+    const inner =
+      x.type === 'cast_expression'
+        ? x.childForFieldName('value')
+        : x.namedChildren.find((c) => c !== null && c.type !== 'comment');
+    if (!inner) break;
+    x = inner;
+  }
+  return x;
+};
+
+const operator = (n: Node) =>
+  n.type === 'binary_expression' ? n.childForFieldName('operator')?.text : undefined;
+
+/** `x == STATE` (either side), or a `||` of such tests. */
+function isStateTest(n: Node, states: RegExp): boolean {
+  const e = unwrapped(n);
+  const op = operator(e);
+  const left = e.childForFieldName('left');
+  const right = e.childForFieldName('right');
+  if (!left || !right) return false;
+  if (op === '||') return isStateTest(left, states) && isStateTest(right, states);
+  if (op !== '==') return false;
+  return [left, right].some((side) => {
+    const u = unwrapped(side);
+    return NAMES.has(u.type) && states.test(compact(u));
+  });
+}
+
 /**
  * The state names a condition compares with `==`; undefined when it holds none, [] when one of
- * them is used any other way.
+ * them is used any other way, or sits under a `||` whose other side is not a state test.
  */
 function testedStates(cond: Node, states: RegExp): string[] | undefined {
   const found: string[] = [];
   let other = false;
-  const visit = (n: Node) => {
+  const visit = (n: Node, underOr: boolean) => {
     if (NAMES.has(n.type)) {
       const name = compact(n);
       if (!states.test(name)) return;
       let p = n.parent;
       while (p && (p.type === 'parenthesized_expression' || p.type === 'cast_expression'))
         p = p.parent;
-      if (p?.type === 'binary_expression' && p.childForFieldName('operator')?.text === '==') {
+      if (p && operator(p) === '==' && !underOr) {
         if (!found.includes(name)) found.push(name);
       } else other = true;
       return;
     }
-    for (const c of n.namedChildren) if (c) visit(c);
+    // A `||` with a side that is not a state test: the state may not hold.
+    const or = operator(n) === '||' && !isStateTest(n, states);
+    for (const c of n.namedChildren) if (c) visit(c, underOr || or);
   };
-  visit(cond);
+  visit(cond, false);
   if (other) return [];
   return found.length ? found : undefined;
 }
 
-/** Callees of the calls that are statements of `stmts`, through blocks and `return`. */
+/**
+ * Callees of every call in `stmts`, at any depth (inside `if`s, loops and nested `switch`es:
+ * calls under a nested event `case` belong to the enclosing state `case`).
+ */
 function directCalls(stmts: Node[], out: string[]) {
-  for (const s of stmts) {
-    if (s.type === 'compound_statement') directCalls(named(s), out);
-    else if (s.type === 'expression_statement' || s.type === 'return_statement') {
-      const e = named(s)[0];
-      const fn = e?.type === 'call_expression' ? e.childForFieldName('function') : null;
+  for (const s of stmts)
+    for (const call of [s, ...s.descendantsOfType('call_expression')]) {
+      if (call?.type !== 'call_expression') continue;
+      const fn = call.childForFieldName('function');
       if (fn && (fn.type === 'identifier' || fn.type === 'qualified_identifier'))
         out.push(compact(fn));
     }
-  }
 }
 
 function compileMachines(machines: MachineRecord[], file: string): Compiled[] {
@@ -194,17 +228,34 @@ export function machineHooks(
   const functions = symbols.filter((s) => s.kind === 'function');
   const byId = new Map(compiled.map((c) => [c.id, c]));
 
-  const onSet = (m: Compiled) => (site: Site, at: Node) => {
-    const to = site.key;
-    if (to === undefined || !m.states.test(to)) return;
+  /** Target names of a key: the key, else both branches of a `?:` when each names a state. */
+  const targetsOf = (m: Compiled, site: Site, keyNode: Node | undefined, member: boolean) => {
+    if (site.key !== undefined && m.states.test(site.key)) return [site.key];
+    const e = keyNode ? strip(keyNode) : undefined;
+    if (e?.type !== 'conditional_expression') return [];
+    const names: string[] = [];
+    for (const field of ['consequence', 'alternative']) {
+      const branch = e.childForFieldName(field);
+      let b = branch ? strip(branch) : undefined;
+      if (member && b?.type === 'field_expression') b = b.childForFieldName('field') ?? undefined;
+      const name = b && (NAMES.has(b.type) || b.type === 'field_identifier') ? compact(b) : '';
+      if (!m.states.test(name)) return [];
+      if (!names.includes(name)) names.push(name);
+    }
+    return names;
+  };
+
+  const onSet = (m: Compiled, member: boolean) => (site: Site, at: Node, keyNode?: Node) => {
+    const targets = targetsOf(m, site, keyNode, member);
+    if (targets.length === 0) return;
     let region: Node | undefined;
     let regionStart = 0;
     let fromCases: string[] | undefined;
     let fromTests: string[] | undefined;
-    /** The `if` that gave `fromTests`. */
-    let testIf: number | undefined;
+    /** For a source from a test: the guards and region inside the test's consequence. */
+    let test: { guards: string[]; region: Node; start: number } | undefined;
     let events: string[] | undefined;
-    const guards: { text: string; at: number }[] = [];
+    const guards: string[] = [];
     let fn: Node | undefined;
     let child = at;
     for (let p = at.parent; p; child = p, p = p.parent) {
@@ -231,16 +282,18 @@ export function machineHooks(
         const consequence = p.childForFieldName('consequence');
         const cond = p.childForFieldName('condition');
         if (cond && !fromTests && child.id === consequence?.id)
-          if ((fromTests = testedStates(cond, m.states))?.length) testIf = p.id;
+          if ((fromTests = testedStates(cond, m.states))?.length)
+            test = region
+              ? { guards: [...guards], region, start: regionStart }
+              : { guards: [...guards], region: child, start: child.startPosition.row };
         if (region) continue;
         const alternative = p.childForFieldName('alternative');
-        if (cond && child.id === consequence?.id)
-          guards.push({ text: conditionText(cond), at: p.id });
+        if (cond && child.id === consequence?.id) guards.push(conditionText(cond));
         else if (cond && child.id === alternative?.id) {
           // `else if`: the inner `if` already gave the guard.
           const inner = named(child);
           if (!(inner.length === 1 && inner[0]!.type === 'if_statement'))
-            guards.push({ text: `!(${conditionText(cond)})`, at: p.id });
+            guards.push(`!(${conditionText(cond)})`);
         }
       }
     }
@@ -249,7 +302,7 @@ export function machineHooks(
       file,
       line: site.line,
       column: site.column,
-      to,
+      to: targets[0]!,
       fromCases: fromCases ?? [],
       fromTests: fromTests ?? [],
       kind: 'set',
@@ -257,18 +310,20 @@ export function machineHooks(
     };
     if (site.symbol !== undefined) t.symbol = site.symbol;
     if (site.sig !== undefined) t.sig = site.sig;
-    // A source from a test already says what the guard would.
-    const fromTest = !fromCases && testIf !== undefined;
-    if (guards.length === 1 && !(fromTest && guards[0]!.at === testIf))
-      t.guard = truncate(guards[0]!.text);
-    if (region) t.region = { startLine: regionStart, endLine: region.endPosition.row };
+    // A source from a test: guard and region come from inside the test's consequence.
+    const fromTest = !fromCases && test !== undefined;
+    const shown = fromTest ? test!.guards : guards;
+    if (shown.length === 1) t.guard = truncate(shown[0]!);
+    if (fromTest) t.region = { startLine: test!.start, endLine: test!.region.endPosition.row };
+    else if (region) t.region = { startLine: regionStart, endLine: region.endPosition.row };
     else {
       const body = fn?.childForFieldName('body');
       if (body) t.region = { startLine: body.startPosition.row, endLine: body.endPosition.row };
     }
-    // A fall-through group of event labels: one transition per event.
-    if (events) for (const event of events) result.transitions.push({ ...t, event });
-    else result.transitions.push(t);
+    for (const to of targets)
+      // A fall-through group of event labels: one transition per event.
+      if (events) for (const event of events) result.transitions.push({ ...t, to, event });
+      else result.transitions.push({ ...t, to });
   };
 
   const onCase = (node: Node) => {
@@ -376,7 +431,13 @@ export function machineHooks(
   const hooks: SiteHooks = {
     matchers: machines.flatMap((m) => {
       const c = byId.get(m.id);
-      return c ? (m.set ?? []).map((matcher) => ({ id: m.id, matcher, onSite: onSet(c) })) : [];
+      return c
+        ? (m.set ?? []).map((matcher) => ({
+            id: m.id,
+            matcher,
+            onSite: onSet(c, matcher.keyMember === true),
+          }))
+        : [];
     }),
     onNode(node) {
       if (node.type === 'case_statement') onCase(node);

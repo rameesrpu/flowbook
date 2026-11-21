@@ -221,6 +221,7 @@ describe('paths', () => {
     expect(rootOfFlowbookFile('/r/x/.flowbook/config.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/flows/a.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/connections.jsonl')).toBe('/r/x');
+    expect(rootOfFlowbookFile('/r/x/.flowbook/machines.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/other.jsonl')).toBeUndefined();
   });
 

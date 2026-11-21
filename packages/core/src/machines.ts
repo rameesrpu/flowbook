@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Matcher, matcherRegex } from './connections.js';
+import { AssignMatcher, CallMatcher, matcherRegex } from './connections.js';
 import { parseLines, type Diagnostic, type Located } from './parse.js';
 import { Anchor, Id } from './schema.js';
 
@@ -11,7 +11,7 @@ const Slot = z
   .describe('1-based position, or the name of a designator field');
 
 /** Set-site matcher: a call or an assign matcher (it must yield a key; checked in validation). */
-export const SetMatcher = z.union([Matcher.options[0], Matcher.options[3]]);
+export const SetMatcher = z.union([CallMatcher, AssignMatcher]);
 export type SetMatcher = z.infer<typeof SetMatcher>;
 
 export const TableSpec = z

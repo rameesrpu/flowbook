@@ -62,13 +62,17 @@ describe('collectTransitions', () => {
     ]);
   });
 
-  it('lists state labels and calls made directly in a state case block', () => {
+  it('lists state labels and the calls in a state case block', () => {
     const { stateLabels, stateCalls } = scan(NESTED);
     expect(stateLabels).toEqual([
       { machine: 'm', state: 'ST_IDLE' },
       { machine: 'm', state: 'ST_RUN' },
     ]);
-    expect(stateCalls).toEqual([{ machine: 'm', state: 'ST_RUN', callee: 'on_run' }]);
+    expect(stateCalls).toEqual([
+      { machine: 'm', state: 'ST_IDLE', callee: 'log_it' },
+      { machine: 'm', state: 'ST_IDLE', callee: 'set_state' },
+      { machine: 'm', state: 'ST_RUN', callee: 'on_run' },
+    ]);
   });
 
   it('gives every label of a fall-through group and the shared block as region', () => {
@@ -300,7 +304,7 @@ static const trans_t other[] = { {EV_X, ST_X, f} };
     });
   });
 
-  it('omits the guard when the same if gives the source states', () => {
+  it('omits the guard of the if that gives the source states, keeps one inside it', () => {
     const text = `void f(int s)
 {
   if (s == ST_X) set_state (0, ST_A);
@@ -311,7 +315,7 @@ static const trans_t other[] = { {EV_X, ST_X, f} };
     const ts = scan(text).transitions;
     expect(ts.map((t) => [t.to, t.fromTests, t.guard])).toEqual([
       ['ST_A', ['ST_X'], undefined],
-      ['ST_B', ['ST_X'], undefined],
+      ['ST_B', ['ST_X'], 'ready'],
       ['ST_C', ['ST_X'], 's==ST_X'],
     ]);
   });
@@ -325,6 +329,86 @@ static const trans_t other[] = { {EV_X, ST_X, f} };
 }
 `;
     expect(scan(text).transitions[0]!.guard).toBe('dl->a==1&&dl->b');
+  });
+
+  it('collects calls anywhere in a state case block, nested event cases included', () => {
+    const text = `void sm(ar_t *ar, int ev)
+{
+  switch (ar->state) {
+  case ST_A:
+    if (ar->x) { helper (ar); }
+    for (;;) loop_fn (ar);
+    switch (ev) {
+    case EV_GO:
+      on_go (ar, inner (ar));
+      break;
+    }
+    break;
+  }
+}
+`;
+    expect(scan(text).stateCalls.map((c) => `${c.state} ${c.callee}`)).toEqual([
+      'ST_A helper',
+      'ST_A loop_fn',
+      'ST_A on_go',
+      'ST_A inner',
+    ]);
+  });
+
+  it('gives no test source when a state comparison sits under || with a non-state operand', () => {
+    const text = `void f(ar_t *p, int s)
+{
+  if (p->state == ST_A || p->force) set_state (p, ST_B);
+  if ((s == ST_A || s == ST_B) && ready) set_state (p, ST_C);
+  if (s == ST_A || (s == ST_B && t)) set_state (p, ST_D);
+  if ((s == ST_A) || (s == ST_B)) set_state (p, ST_E);
+  if (s == ST_A && (x || y)) set_state (p, ST_F);
+}
+`;
+    expect(Object.fromEntries(scan(text).transitions.map((t) => [t.to, t.fromTests]))).toEqual({
+      ST_B: [],
+      ST_C: ['ST_A', 'ST_B'],
+      ST_D: [],
+      ST_E: ['ST_A', 'ST_B'],
+      ST_F: ['ST_A'],
+    });
+  });
+
+  it('uses the consequence of the test if as region for the guard and the triggers', () => {
+    const text = `void f(ar_t *p)
+{
+  prepare ();
+  if (p->state == ST_A) {
+    if (p->cmd == 1)
+      set_state (p, ST_C);
+  }
+}
+`;
+    const [t] = scan(text).transitions;
+    expect(t!.fromTests).toEqual(['ST_A']);
+    expect(t!.guard).toBe('p->cmd==1');
+    expect(t!.region).toEqual({ startLine: 3, endLine: 6 });
+  });
+
+  it('gives one transition per branch of a ?: key when both name states', () => {
+    const text = `void f(ar_t *p, int c)
+{
+  set_state (p, c ? ST_A : (ST_B));
+  set_state (p, c ? ST_A : other);
+  set_state (p, c ? ST_A : 0);
+}
+`;
+    expect(scan(text).transitions.map((t) => [t.line, t.to])).toEqual([
+      [2, 'ST_A'],
+      [2, 'ST_B'],
+    ]);
+    const m = machine({ set: [{ assign: 'state', as: 'key', keyMember: true }] });
+    const assign = `void g(dl_t *dl, int c)
+{
+  dl->state = c ? cfg->ST_X : ST_Y;
+}
+`;
+    expect(scan(assign, [m]).transitions.map((t) => t.to)).toEqual(['ST_X', 'ST_Y']);
   });
 
   it('writes sig only when defined', () => {

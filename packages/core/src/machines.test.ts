@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { jsonSchemas, loadWorkspace, parseMachines, validateMachines } from './index.js';
+import {
+  AssignMatcher,
+  CallMatcher,
+  jsonSchemas,
+  loadWorkspace,
+  parseMachines,
+  SetMatcher,
+  validateMachines,
+} from './index.js';
 
 const F = '.flowbook/machines.jsonl';
 const M1 = `{"kind":"machine","id":"cmsm","title":"CM state machine","states":"PF_CMSM_STATE_.*","events":"PNET_EVENT_.*","set":[{"call":"pf_cmsm_set_state","key":2}],"files":["src/src/device/pf_cmsm.c"],"context":"p-net main thread"}`;
@@ -49,6 +57,13 @@ describe('machines', () => {
     ]);
     expect(all([machine(SET), scope('S_A', 'zz')].join('\n'))).toEqual(['unknown machine "zz"']);
     expect(all([machine(SET), machine(SET)].join('\n'))[0]).toMatch(/duplicate id "m"/);
+  });
+
+  it('builds set matchers from the named call and assign matchers', () => {
+    expect(SetMatcher.options).toEqual([CallMatcher, AssignMatcher]);
+    expect(SetMatcher.safeParse({ call: 'f', key: 1 }).success).toBe(true);
+    expect(SetMatcher.safeParse({ assign: 'state', as: 'key' }).success).toBe(true);
+    expect(SetMatcher.safeParse({ case: 'S_.*' }).success).toBe(false);
   });
 
   it('rejects unknown fields and empty scope anchors', () => {

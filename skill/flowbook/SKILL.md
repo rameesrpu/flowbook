@@ -288,13 +288,31 @@ Write machines in `.flowbook/machines.jsonl` (`machine` and `scope` records; the
 `references/schema.md`). One `machine` per state variable.
 
 1. Find the state variable and its setter: a `set_state (x, STATE)` call (`set: [{call, key}]`) or
-   an assignment `x->state = STATE` (`set: [{assign, as: "key"}]`). Give `states` (and `events`
-   when a nested `case` names them) as regexes over the constant names.
+   an assignment `x->state = STATE` (`set: [{assign, as: "key"}]`; `assign` matches field
+   assignments only, `x->state = …` or `s.state = …`, not a plain variable). Give `states` (and
+   `events` when a nested `case` names them) as regexes over the constant names. A key `c ? A : B`
+   gives one transition per branch when both name states; any other key not matching `states` is
+   dropped.
 2. Run `flowbook states --machine <id> --unknown`. It lists every transition whose source state
-   is unknown (`*`): setters outside any state `case`.
+   is unknown (`*`): no source was found by any of the steps below.
+
+   The source state of a set site is the first that applies:
+   1. **case**: the innermost enclosing `case` whose label matches `states` (every label of a
+      fall-through group gives its own transition).
+   2. **test**: the innermost enclosing `if` whose condition compares state names with `==`, the
+      set site in its then branch (`if (ar->state == A || ar->state == B)` gives A and B). No
+      source when a state name is used any other way (`!=`, a call argument) or under a `||` with
+      a non-state side (`if (state == A || force)`). The guard and the triggers then come from
+      inside that `if`.
+   3. **scope**: a `scope` record covering the enclosing function (step 3).
+   4. **caller**: the enclosing function is called from inside exactly one state `case` (any
+      depth in it, nested event cases included) in the **same file**; two different states make
+      it unknown.
+   5. **none**: `*`.
+
 3. Add a `scope` record only for a function you have read and know runs in one state (init code,
-   for example); it gives every set site inside it that source state. One record per function
-   group, not per transition.
+   for example); it gives that source state to every set site inside it that has no state `case`
+   or test (a scope never overrides those). One record per function group, not per transition.
 4. Tables (`{event, next-state, action}` rows, one array per source state): read the
    table-of-tables once and write the `from` map (array name to source state) in the machine's
    `tables` entry.

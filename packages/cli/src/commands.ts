@@ -383,7 +383,8 @@ function transitionLine(m: MachineView, t: Transition): string {
 
 /**
  * Lists every state transition with its source state and what it sets off, then one summary
- * line per machine. Errors in the machines file go to stderr first and make the exit code 1.
+ * line per machine. Diagnostics of the machines file and the machine index go to stderr first;
+ * errors in either make the exit code 1.
  */
 export function states(
   ctx: Context,
@@ -391,11 +392,9 @@ export function states(
 ): number {
   const ws = readWorkspace(ctx.root);
   const known = ws.connections.machines ?? [];
-  const fileErrors = sortDiagnostics(
-    ws.diagnostics.filter((d) => d.severity === 'error' && d.file === MACHINES_FILE),
-  );
+  const fileDiagnostics = sortDiagnostics(ws.diagnostics.filter((d) => d.file === MACHINES_FILE));
+  const fileErrors = fileDiagnostics.filter((d) => d.severity === 'error');
   for (const d of fileErrors) ctx.io.err(formatDiagnostic(d, ctx.root));
-  const code = fileErrors.length > 0 ? 1 : 0;
   if (opts.machine !== undefined && !known.some((m) => m.id === opts.machine)) {
     ctx.io.err(
       `error: unknown machine "${opts.machine}"; known: ${known.map((m) => m.id).join(', ')}`,
@@ -405,6 +404,9 @@ export function states(
   const scans = scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx));
   const index = buildConnectionIndex(ws.connections, scans);
   const mi = buildMachineIndex(ws.connections, scans, index);
+  // Like rule errors for `sites`: a record an error drops or breaks finds the wrong thing.
+  const errors = fileErrors.length + mi.diagnostics.filter((d) => d.severity === 'error').length;
+  const code = errors > 0 ? 1 : 0;
   const wanted = (id: string) => opts.machine === undefined || id === opts.machine;
   const machines = mi.machines.filter((m) => wanted(m.id));
   const summaries = machineSummaries(mi).filter((s) => wanted(s.machine));
@@ -412,7 +414,8 @@ export function states(
     const view = opts.unknown
       ? machines.map((m) => ({ ...m, transitions: m.transitions.filter((t) => t.from === '*') }))
       : machines;
-    ctx.io.out(JSON.stringify({ machines: view, diagnostics: mi.diagnostics }, null, 2));
+    const diagnostics = sortDiagnostics([...fileDiagnostics, ...mi.diagnostics]);
+    ctx.io.out(JSON.stringify({ machines: view, diagnostics }, null, 2));
     return code;
   }
   for (const d of mi.diagnostics) ctx.io.err(formatDiagnostic(d, ctx.root));
