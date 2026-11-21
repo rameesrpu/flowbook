@@ -5,7 +5,9 @@ agent-written JSONL files stored in the documented repo under `.flowbook/`, so t
 the code. Agents write flows (via `skill/flowbook/SKILL.md` + the CLI); humans read them in the
 extension. The UI is read-only by design.
 
-Pending work and ready-to-use agent briefs: [docs/agent-workflows/backlog.md](docs/agent-workflows/backlog.md).
+Start every session by reading [docs/tracker.md](docs/tracker.md) (current state, rulings, open
+points; update it before ending a session) and [docs/roadmap.md](docs/roadmap.md) (direction and
+order of designs). Ready-to-use agent briefs: [docs/agent-workflows/backlog.md](docs/agent-workflows/backlog.md).
 
 ## Environment
 

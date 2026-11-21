@@ -2,7 +2,8 @@
 
 Open work after the v0.1 rebuild (all milestones done, CI green at `4310f43`). Each item is
 written as a self-contained brief: hand one to an agent as-is. Read [CLAUDE.md](../../CLAUDE.md)
-first; it has commands, layout and design rules.
+first; it has commands, layout and design rules. Order of work: [roadmap.md](../roadmap.md);
+decisions and open points per feature: [tracker.md](../tracker.md).
 
 ## How to run this backlog
 
