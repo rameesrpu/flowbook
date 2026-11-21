@@ -1,5 +1,6 @@
 import { matcherRegex, matchesAny, type Matcher, type RuleRecord } from '@flowbook/core';
 import type { Node, Tree } from 'web-tree-sitter';
+import type { StateCall, StateLabel, TransitionSite } from './machines.js';
 import type { SymbolInfo } from './symbols.js';
 
 export type MatcherKind = 'call' | 'case' | 'test' | 'assign' | 'invoke';
@@ -31,6 +32,19 @@ export interface Site {
 export interface FileScan {
   symbols: SymbolInfo[];
   sites: Site[];
+  /** State-machine transition sites; empty without machines. */
+  transitions: TransitionSite[];
+  stateCalls: StateCall[];
+  stateLabels: StateLabel[];
+}
+
+/**
+ * Extra matchers run in the same walk as the rules: their sites go to `onSite` instead of the
+ * result (`site.rule` is the `id`). `onNode` sees every `case_statement` and `init_declarator`.
+ */
+export interface SiteHooks {
+  matchers: { id: string; matcher: Matcher; onSite(site: Site, at: Node): void }[];
+  onNode(node: Node): void;
 }
 
 interface Compiled {
@@ -41,6 +55,7 @@ interface Compiled {
   /** The matcher's `keys` filter. */
   keys?: RegExp;
   matcher: Matcher;
+  sink?: (site: Site, at: Node) => void;
 }
 
 const CONDITIONS = new Set(['if_statement', 'while_statement', 'conditional_expression']);
@@ -67,7 +82,24 @@ const nameOf = (m: Matcher): string =>
           ? m.assign
           : m.invoke;
 
-const compact = (node: Node) => node.text.replace(/\s+/g, '');
+export const compact = (node: Node) => node.text.replace(/\s+/g, '');
+
+/** `&`, parentheses and casts removed. */
+export function strip(node: Node): Node {
+  if (node.type === 'parenthesized_expression') {
+    const inner = node.namedChildren.find((n) => n !== null && n.type !== 'comment');
+    return inner ? strip(inner) : node;
+  }
+  if (node.type === 'cast_expression') {
+    const value = node.childForFieldName('value');
+    return value ? strip(value) : node;
+  }
+  if (node.type === 'pointer_expression' && node.child(0)?.text === '&') {
+    const arg = node.childForFieldName('argument');
+    return arg ? strip(arg) : node;
+  }
+  return node;
+}
 
 /** The matcher's regular expression, or undefined when invalid (core reports that error). */
 export function compileName(name: string): RegExp | undefined {
@@ -78,23 +110,37 @@ export function compileName(name: string): RegExp | undefined {
   }
 }
 
-function compile(rules: RuleRecord[], file: string): Compiled[] {
+function compileOne(
+  rule: string,
+  role: 'send' | 'receive',
+  matcher: Matcher,
+  file: string,
+): Compiled | undefined {
+  if (!matchesAny(file, matcher.files)) return undefined;
+  const re = compileName(nameOf(matcher));
+  if (!re) return undefined;
+  const c: Compiled = { rule, role, kind: kindOf(matcher), re, matcher };
+  if ('keys' in matcher && matcher.keys !== undefined) {
+    const keys = compileName(matcher.keys);
+    if (!keys) return undefined;
+    c.keys = keys;
+  }
+  return c;
+}
+
+function compile(rules: RuleRecord[], file: string, hooks?: SiteHooks): Compiled[] {
   const out: Compiled[] = [];
   for (const rule of rules) {
     for (const role of ['send', 'receive'] as const) {
       for (const matcher of rule[role] ?? []) {
-        if (!matchesAny(file, matcher.files)) continue;
-        const re = compileName(nameOf(matcher));
-        if (!re) continue;
-        const c: Compiled = { rule: rule.id, role, kind: kindOf(matcher), re, matcher };
-        if ('keys' in matcher && matcher.keys !== undefined) {
-          const keys = compileName(matcher.keys);
-          if (!keys) continue;
-          c.keys = keys;
-        }
-        out.push(c);
+        const c = compileOne(rule.id, role, matcher, file);
+        if (c) out.push(c);
       }
     }
+  }
+  for (const h of hooks?.matchers ?? []) {
+    const c = compileOne(h.id, 'send', h.matcher, file);
+    if (c) out.push({ ...c, sink: h.onSite });
   }
   return out;
 }
@@ -105,9 +151,10 @@ export function collectSites(
   file: string,
   rules: RuleRecord[],
   symbols: SymbolInfo[],
+  hooks?: SiteHooks,
 ): Site[] {
-  const compiled = compile(rules, file);
-  if (compiled.length === 0) return [];
+  const compiled = compile(rules, file, hooks);
+  if (compiled.length === 0 && !hooks) return [];
   const byKind = (kind: MatcherKind) => compiled.filter((c) => c.kind === kind);
   const calls = byKind('call');
   const cases = byKind('case');
@@ -139,7 +186,8 @@ export function collectSites(
       site.sig = enclosing.sig;
     }
     Object.assign(site, extra);
-    out.push(site);
+    if (c.sink) c.sink(site, at);
+    else out.push(site);
   };
 
   /** An identifier, possibly wrapped in any number of `&` or parentheses. */
@@ -167,23 +215,6 @@ export function collectSites(
       return !!arg && isNull(arg);
     }
     return node.text === 'NULL' || node.text === 'nullptr' || node.text === '0';
-  };
-
-  /** `&`, parentheses and casts removed. */
-  const strip = (node: Node): Node => {
-    if (node.type === 'parenthesized_expression') {
-      const inner = node.namedChildren.find((n) => n !== null && n.type !== 'comment');
-      return inner ? strip(inner) : node;
-    }
-    if (node.type === 'cast_expression') {
-      const value = node.childForFieldName('value');
-      return value ? strip(value) : node;
-    }
-    if (node.type === 'pointer_expression' && node.child(0)?.text === '&') {
-      const arg = node.childForFieldName('argument');
-      return arg ? strip(arg) : node;
-    }
-    return node;
   };
 
   /** A site's key: the text without whitespace; with `member`, the last member's name. */
@@ -301,7 +332,11 @@ export function collectSites(
       case 'call_expression':
         visitCall(node);
         break;
+      case 'init_declarator':
+        hooks?.onNode(node);
+        break;
       case 'case_statement': {
+        hooks?.onNode(node);
         const value = node.childForFieldName('value');
         if (value && (value.type === 'identifier' || value.type === 'qualified_identifier')) {
           const name = compact(value);

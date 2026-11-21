@@ -33,14 +33,29 @@ export const MAX_SCAN_BYTES = 2 * 1024 * 1024;
 
 export const createScanCache = (): ScanCache => ({ files: new Map() });
 
-/** Everything the results depend on besides file contents: rule records and anchored files. */
-export function rulesKeyOf(connections: Connections): string {
-  const rules = connections.rules.map((r) => ({ ...r, line: undefined }));
+/** Files parsed even when the prefilter rejects them: named by a connection or scope anchor. */
+function anchoredFiles(connections: Connections): Set<string> {
   const anchored = new Set<string>();
   for (const c of connections.connections)
     for (const a of [...(c.send ?? []), ...(c.receive ?? [])]) anchored.add(a.file);
-  return JSON.stringify([rules, [...anchored].sort()]);
+  for (const s of connections.scopes ?? []) for (const a of s.in) anchored.add(a.file);
+  return anchored;
 }
+
+/**
+ * Everything the results depend on besides file contents: rule, machine and scope records and
+ * anchored files.
+ */
+export function rulesKeyOf(connections: Connections): string {
+  const rules = connections.rules.map((r) => ({ ...r, line: undefined }));
+  const machines = (connections.machines ?? []).map((m) => ({ ...m, line: undefined }));
+  const scopes = (connections.scopes ?? []).map((m) => ({ ...m, line: undefined }));
+  const anchored = anchoredFiles(connections);
+  return JSON.stringify([rules, [...anchored].sort(), machines, scopes]);
+}
+
+const hasWork = (connections: Connections) =>
+  connections.rules.length > 0 || (connections.machines?.length ?? 0) > 0;
 
 const SLICE = 20;
 const WORD = /\w/;
@@ -187,16 +202,25 @@ export function literalFragments(src: string): string[] | null {
   return out;
 }
 
-/** Fragments of every matcher name; null when any rule name has none. */
+/**
+ * Fragments of every matcher name and of every machine's `set` names, `rows` and `states` (so
+ * state labels in files without setters are seen); null when any of them has none.
+ */
 function ruleFragments(connections: Connections): string[] | null {
+  const names: string[] = [];
+  for (const rule of connections.rules)
+    for (const m of [...rule.send, ...(rule.receive ?? [])]) names.push(nameOf(m));
+  for (const machine of connections.machines ?? []) {
+    names.push(machine.states);
+    for (const m of machine.set ?? []) names.push(nameOf(m));
+    for (const t of machine.tables ?? []) names.push(t.rows);
+  }
   const all: string[] = [];
-  for (const rule of connections.rules) {
-    for (const m of [...rule.send, ...(rule.receive ?? [])]) {
-      if (!compileName(nameOf(m))) continue;
-      const f = literalFragments(nameOf(m));
-      if (f === null) return null;
-      all.push(...f);
-    }
+  for (const name of names) {
+    if (!compileName(name)) continue;
+    const f = literalFragments(name);
+    if (f === null) return null;
+    all.push(...f);
   }
   return all;
 }
@@ -217,8 +241,9 @@ interface Source {
 }
 
 /**
- * The two-pass scan, written once. Pass 1 parses files whose text contains a rule-name fragment;
- * pass 2 adds files defining a handler pass 1 found and files named by a connection anchor.
+ * The two-pass scan, written once. Pass 1 parses files whose text contains a rule- or machine-name
+ * fragment; pass 2 adds files defining a handler pass 1 found and files named by a connection or
+ * scope anchor.
  * Yields once per file visited, cache hits included. Files over `MAX_SCAN_BYTES` and files whose
  * parse throws are left out and reported to `onSkip`.
  */
@@ -230,8 +255,9 @@ function* run(
   onSkip: OnSkip | undefined,
 ): Generator<void, Map<string, FileScan>> {
   const result = new Map<string, FileScan>();
-  if (connections.rules.length === 0) return result;
+  if (!hasWork(connections)) return result;
   const rules = connections.rules;
+  const machines = connections.machines ?? [];
   const fragments = ruleFragments(connections);
   const present = new Set(source.paths);
   if (cache) {
@@ -271,7 +297,7 @@ function* run(
   };
   const parse = (path: string, text: string): FileScan | undefined => {
     try {
-      return resolver.scan(path, text, rules);
+      return resolver.scan(path, text, rules, machines);
     } catch (e) {
       skip(path, `parse failed: ${e instanceof Error ? e.message : String(e)}`);
       return undefined;
@@ -310,9 +336,7 @@ function* run(
     }
   }
 
-  const anchored = new Set<string>();
-  for (const c of connections.connections)
-    for (const a of [...(c.send ?? []), ...(c.receive ?? [])]) anchored.add(a.file);
+  const anchored = anchoredFiles(connections);
   const handlersKey = [...handlers].sort().join('\n');
 
   for (const path of rejected) {
@@ -393,7 +417,7 @@ export function scanRoot(
   cache?: ScanCache,
   onSkip?: OnSkip,
 ): Map<string, FileScan> {
-  if (connections.rules.length === 0) return new Map();
+  if (!hasWork(connections)) return new Map();
   return drain(run(rootSource(root, listSourceFiles(root)), connections, resolver, cache, onSkip));
 }
 
@@ -409,7 +433,7 @@ export async function scanRootSliced(
   pause: () => Promise<void>,
   onSkip?: OnSkip,
 ): Promise<Map<string, FileScan>> {
-  if (connections.rules.length === 0) return new Map();
+  if (!hasWork(connections)) return new Map();
   const gen = run(rootSource(root, listSourceFiles(root)), connections, resolver, cache, onSkip);
   let n = 0;
   for (;;) {

@@ -1,0 +1,250 @@
+import type { MachineRecord } from '@flowbook/core';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { Resolver } from './resolver.js';
+
+let resolver: Resolver;
+beforeAll(async () => {
+  resolver = await Resolver.create();
+});
+
+const machine = (over: Partial<MachineRecord> = {}): MachineRecord => ({
+  kind: 'machine',
+  id: 'm',
+  title: 'M',
+  states: 'ST_.*',
+  events: 'EV_.*',
+  set: [{ call: 'set_state', key: 2 }],
+  ...over,
+});
+
+const scan = (text: string, machines: MachineRecord[] = [machine()], path = 'src/sm.c') =>
+  resolver.scan(path, text, [], machines);
+
+const NESTED = `void sm(ar_t *ar, int event)
+{
+  switch (ar->state) {
+  case ST_IDLE:
+    switch (event) {
+    case EV_START:
+      log_it ();
+      set_state (ar, ST_RUN);
+      break;
+    default:
+      break;
+    }
+    break;
+  case ST_RUN:
+    on_run (ar);
+    break;
+  }
+}
+`;
+
+describe('collectTransitions', () => {
+  it('gives the state case, the event case and the event case block as region', () => {
+    const { transitions, sites } = scan(NESTED);
+    expect(sites).toEqual([]);
+    expect(transitions).toEqual([
+      {
+        machine: 'm',
+        file: 'src/sm.c',
+        line: 7,
+        column: 6,
+        symbol: 'sm',
+        sig: '(ar_t*,int)',
+        to: 'ST_RUN',
+        fromCases: ['ST_IDLE'],
+        event: 'EV_START',
+        kind: 'set',
+        region: { startLine: 5, endLine: 8 },
+      },
+    ]);
+  });
+
+  it('lists state labels and calls made directly in a state case block', () => {
+    const { stateLabels, stateCalls } = scan(NESTED);
+    expect(stateLabels).toEqual([
+      { machine: 'm', state: 'ST_IDLE' },
+      { machine: 'm', state: 'ST_RUN' },
+    ]);
+    expect(stateCalls).toEqual([{ machine: 'm', state: 'ST_RUN', callee: 'on_run' }]);
+  });
+
+  it('gives every label of a fall-through group and the shared block as region', () => {
+    const text = `void sm(int s)
+{
+  switch (s) {
+  case ST_A:
+  case ST_B:
+    set_state (0, ST_C);
+    break;
+  }
+}
+`;
+    const [t] = scan(text).transitions;
+    expect(t!.fromCases).toEqual(['ST_A', 'ST_B']);
+    expect(t!.event).toBeUndefined();
+    expect(t!.region).toEqual({ startLine: 3, endLine: 6 });
+  });
+
+  it('does not take a case on events as the source state', () => {
+    const text = `void on_event(int event)
+{
+  switch (event) {
+  case EV_STOP:
+  case OTHER_LABEL:
+    set_state (0, ST_IDLE);
+    break;
+  }
+}
+`;
+    const [t] = scan(text).transitions;
+    expect(t!.fromCases).toEqual([]);
+    expect(t!.event).toBe('EV_STOP');
+    expect(scan(text).stateLabels).toEqual([]);
+  });
+
+  it('uses the function body as region outside any case', () => {
+    const text = `void init(void)
+{
+  prepare ();
+  set_state (0, ST_IDLE);
+}
+`;
+    const [t] = scan(text).transitions;
+    expect(t!.fromCases).toEqual([]);
+    expect(t!.region).toEqual({ startLine: 1, endLine: 4 });
+    expect(t!.symbol).toBe('init');
+  });
+
+  it('reads the assign form with keyMember and drops targets not matching states', () => {
+    const m = machine({
+      set: [{ assign: 'state', as: 'key', keyMember: true }],
+    });
+    const text = `void step(dl_t *dl)
+{
+  dl->mh.state = cfg->ST_PREOP;
+  dl->mh.state = 0;
+  dl->mh.state = OTHER;
+}
+`;
+    const ts = scan(text, [m]).transitions;
+    expect(ts.map((t) => [t.to, t.line, t.column])).toEqual([['ST_PREOP', 2, 9]]);
+  });
+
+  it('keeps the condition of one enclosing if as guard', () => {
+    const text = `void startup(dl_t *dl)
+{
+  if (dl->mh.cmd  ==
+      MHCMD_PREOP) {
+    set_state (dl, ST_PREOP);
+  } else if (dl->mh.cmd == MHCMD_OP) {
+    set_state (dl, ST_OP);
+  } else {
+    set_state (dl, ST_FAULT);
+  }
+  if (a) { if (b) set_state (dl, ST_X); }
+  if (${'x'.repeat(100)}) set_state (dl, ST_LONG);
+  set_state (dl, ST_PLAIN);
+}
+`;
+    const guards = Object.fromEntries(scan(text).transitions.map((t) => [t.to, t.guard]));
+    expect(guards).toEqual({
+      ST_PREOP: 'dl->mh.cmd==MHCMD_PREOP',
+      ST_OP: 'dl->mh.cmd==MHCMD_OP',
+      ST_FAULT: '!(dl->mh.cmd==MHCMD_OP)',
+      ST_X: undefined,
+      ST_LONG: 'x'.repeat(79) + '…',
+      ST_PLAIN: undefined,
+    });
+    // Guards are only looked for inside the region (the case block).
+    const inCase = `void f(int s)
+{
+  if (ready) {
+    switch (s) {
+    case ST_A:
+      set_state (0, ST_B);
+      break;
+    }
+  }
+}
+`;
+    expect(scan(inCase).transitions[0]!.guard).toBeUndefined();
+  });
+
+  it('ignores machines, set sites and labels outside the machine files', () => {
+    const limited = machine({ files: ['src/sm.c'] });
+    expect(scan(NESTED, [limited], 'src/other.c')).toMatchObject({
+      transitions: [],
+      stateCalls: [],
+      stateLabels: [],
+    });
+    expect(scan(NESTED, [limited], 'src/sm.c').transitions).toHaveLength(1);
+  });
+
+  it('reads table rows, positional and designated, with labels; short rows are skipped', () => {
+    const m = machine({
+      set: undefined,
+      tables: [{ rows: 'trans_s[0-9]+', event: 1, to: 2, action: 3, from: {} }],
+    });
+    const text = `static const trans_t trans_s0[] = {
+  {EV_MANUAL, ST_STARTUP, cm_startup}, /* T1 */
+  {EV_AUTO, ST_OTHER, &cm_other},
+  {EV_SHORT},
+  {EV_BAD, NOT_A_STATE, cm_bad},
+};
+static const trans_t other[] = { {EV_X, ST_X, f} };
+`;
+    expect(scan(text, [m]).transitions).toEqual([
+      {
+        machine: 'm',
+        file: 'src/sm.c',
+        line: 1,
+        column: 2,
+        to: 'ST_STARTUP',
+        fromCases: [],
+        event: 'EV_MANUAL',
+        label: 'T1',
+        kind: 'row',
+        action: 'cm_startup',
+        table: 'trans_s0',
+        region: { startLine: 1, endLine: 1 },
+      },
+      {
+        machine: 'm',
+        file: 'src/sm.c',
+        line: 2,
+        column: 2,
+        to: 'ST_OTHER',
+        fromCases: [],
+        event: 'EV_AUTO',
+        kind: 'row',
+        action: 'cm_other',
+        table: 'trans_s0',
+        region: { startLine: 2, endLine: 2 },
+      },
+    ]);
+
+    const named = machine({
+      set: undefined,
+      tables: [{ rows: 'rows', event: 'ev', to: 'next', action: 'fn', from: {} }],
+    });
+    const designated = `const row_t rows[] = {
+  /* T5 */ { .ev = EV_GO, .next = ST_GO, .fn = go },
+  { .ev = EV_NONE },
+};
+`;
+    const rows = scan(designated, [named]).transitions;
+    expect(rows.map((t) => [t.event, t.to, t.action, t.label])).toEqual([
+      ['EV_GO', 'ST_GO', 'go', 'T5'],
+    ]);
+  });
+
+  it('gives empty arrays without machines', () => {
+    expect(resolver.scan('src/sm.c', NESTED, [])).toMatchObject({
+      transitions: [],
+      stateCalls: [],
+      stateLabels: [],
+    });
+  });
+});

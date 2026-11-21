@@ -6,6 +6,7 @@ import {
   CONNECTIONS_FILE,
   parseConnections,
   type Connections,
+  type MachineRecord,
   type RuleRecord,
 } from '@flowbook/core';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -24,6 +25,7 @@ import {
   literalFragments,
   scanRoot,
   scanRootSliced,
+  rulesKeyOf,
   scanSources,
   type ScanCache,
 } from './scan.js';
@@ -366,6 +368,67 @@ describe('scanSources', () => {
     ];
     const scans = scanSources(files, conns([rule('r', '[A-Z_]{2,100}_CB')]), resolver);
     expect(scans.get('a.c')!.sites).toHaveLength(1);
+  });
+});
+
+describe('machines in the scan', () => {
+  const machine: MachineRecord = {
+    kind: 'machine',
+    id: 'sm',
+    title: 'SM',
+    states: 'ST_[A-Z]+',
+    set: [{ call: 'sm_set_state', key: 2 }],
+    tables: [{ rows: 'sm_rows', event: 1, to: 2, from: {} }],
+  };
+  const withMachines = (scopeFiles: string[] = []): Connections => ({
+    rules: [],
+    connections: [],
+    machines: [{ ...machine, line: 1 }],
+    scopes: scopeFiles.map((file, i) => ({
+      kind: 'scope',
+      id: `s${i}`,
+      machine: 'sm',
+      state: 'ST_IDLE',
+      in: [{ file, symbol: 'f' }],
+      line: 2 + i,
+    })),
+  });
+
+  it('runs without rules and prefilters on set names, rows and states', () => {
+    const root = temp();
+    put(root, 'src/set.c', 'void f(void) { sm_set_state(0, ST_RUN); }');
+    put(root, 'src/rows.c', 'const row_t sm_rows[] = { {EV_A, ST_RUN} };');
+    put(root, 'src/labels.c', 'void g(int s) { switch (s) { case ST_IDLE: run(); break; } }');
+    put(root, 'src/none.c', 'void h(void) { other(); }');
+    const scans = scanRoot(root, withMachines(), resolver);
+    expect([...scans.keys()].sort()).toEqual(['src/labels.c', 'src/rows.c', 'src/set.c']);
+    expect(scans.get('src/set.c')!.transitions.map((t) => t.to)).toEqual(['ST_RUN']);
+    expect(scans.get('src/rows.c')!.transitions.map((t) => t.kind)).toEqual(['row']);
+    expect(scans.get('src/labels.c')!.stateCalls).toEqual([
+      { machine: 'sm', state: 'ST_IDLE', callee: 'run' },
+    ]);
+  });
+
+  it('scans files named by scope anchors and keys the cache on machines and scopes', () => {
+    const root = temp();
+    put(root, 'src/init.c', 'void f(void) { helper(); }');
+    expect(scanRoot(root, withMachines(), resolver).has('src/init.c')).toBe(false);
+    expect(scanRoot(root, withMachines(['src/init.c']), resolver).has('src/init.c')).toBe(true);
+    const base = rulesKeyOf(withMachines());
+    expect(rulesKeyOf(withMachines(['src/init.c']))).not.toBe(base);
+    const edited = { ...withMachines(), machines: [{ ...machine, states: 'ST_.*', line: 1 }] };
+    expect(rulesKeyOf(edited)).not.toBe(base);
+    const moved = { ...withMachines(), machines: [{ ...machine, line: 7 }] };
+    expect(rulesKeyOf(moved)).toBe(base);
+  });
+
+  it('gives connection-only scans empty machine results', () => {
+    const scans = scanRoot(fixture, fixtureConnections, resolver);
+    for (const s of scans.values()) {
+      expect(s.transitions).toEqual([]);
+      expect(s.stateCalls).toEqual([]);
+      expect(s.stateLabels).toEqual([]);
+    }
   });
 });
 
