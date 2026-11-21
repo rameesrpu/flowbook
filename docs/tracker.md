@@ -15,9 +15,9 @@ How to use it:
 ## Current state (2026-11-21, end of session 3)
 
 - Design 2 (state machines) built on `design-2-state-machines` (CLI + editor lenses; webview
-  diagram is backlog G1), merged into local `main`. **Not pushed** — waits for the user.
+  diagram is backlog G1), merged into `main` and pushed to `origin` (2026-11-22). Merged branches deleted (local and remote).
   CI sequence green (324 tests, e2e lens smoke test passes).
-- Next: user pushes `main`; then design 3 (walkthrough mode) or Track G follow-ups.
+- Next: design 3 (walkthrough mode) or Track G follow-ups.
 
 ## Waiting on the user
 
@@ -26,7 +26,8 @@ How to use it:
 - [x] Design 2 skimmed: CLI + lenses first, webview diagram later; build when the timing is right.
 - [x] Push local `main` to `origin` (2026-11-21). Merged branches `design-1b-rule-format` and
       `ccr-576e715a-wiy3tf` are kept; delete them when the user says so.
-- [ ] Push local `main` (design 2 merge) to `origin`; delete merged branches when the user says so.
+- [x] Push `main` (design 2 merge) to `origin`; merged branches deleted (user, 2026-11-22).
+- [x] Design 2 ruling 15 (`test` source) approved by the user (2026-11-22).
 - [ ] Publishing name (npm `flowbook` / `flowbook-cli` are taken) — only needed before release.
 
 ## Design 1 — Connection points and the editor jump (done)
