@@ -25,6 +25,7 @@ examples/i-link/
   fetch.sh                  clones i-link into src/ and checks out the pinned commit
   src/                      i-link sources (not committed, gitignored); the stack itself is src/src/
   .flowbook/connections.jsonl  rules and connections (committed); paths are relative to examples/i-link/
+  .flowbook/machines.jsonl     state machines and scopes (committed)
 ```
 
 ## Fetch the source
@@ -33,6 +34,7 @@ examples/i-link/
 examples/i-link/fetch.sh
 pnpm flowbook sites --root examples/i-link
 pnpm flowbook check --root examples/i-link
+pnpm flowbook states --root examples/i-link
 ```
 
 Open `examples/i-link` (not the repository root) in VS Code to see the lenses.
@@ -98,6 +100,54 @@ The free-pool mailboxes used to stay unpaired: the handle is written `master->mb
 one place and `port->master->mbox_avail` in another, and `iolink_main` posts to two different
 pools, so an anchored connection would have joined the API pool to the plain pool. With
 `keyMember` both spellings give the key `mbox_avail`, and each pool pairs only with itself.
+
+## State machines
+
+`.flowbook/machines.jsonl` has three machines and two `scope` records. The DL handlers set
+their state by assignment (`dl->message_handler.state = …`) inside one function per state; the
+CM is table-driven (`cm_trans_s0..7`, one array per source state, rows
+`{event, next state, action}`), and its `from` map was read from the comments in
+`iolink_cm_fsm[]` ("the index is the state in this array"). Measured on 2026-11-21 with
+`flowbook states --root examples/i-link`:
+
+| Machine   | States | Transitions | Source state found by         | Sets off |
+| --------- | ------ | ----------- | ----------------------------- | -------- |
+| `dl-mh`   | 18     | 33          | 30 caller, 2 scope, 1 unknown | 14       |
+| `dl-mode` | 5      | 8           | 2 caller, 3 scope, 3 unknown  | 2        |
+| `cm`      | 8      | 33          | 32 table, 1 unknown           | 0        |
+
+`flowbook check --strict` stays clean and ends with `5 unknown source states`.
+
+Success checks from the design:
+
+- DL message handler: 33 assignments. Without scopes 30 of 33 (91 %) have a known source, all
+  from the `case` in `iolink_dl_message_h_sm` that calls the per-state function (target 90 %).
+  With the scope `dl-mh-wurq` 32 of 33 (97 %).
+- CM: the 32 rows of `cm_trans_s0..7` give 32 transitions, each with its source from the
+  8-entry `from` map, its event, the row comment as label (`T1`, `T13`, `Not in FSM`) and its
+  action function linked (13 distinct functions). The actions call other modules directly
+  (`SM_SetPortConfig_req`, `DS_Delete`, …), not through a rule, so nothing is "set off". The
+  33rd transition is the initial assignment in `iolink_cm_init`.
+
+Scopes: `iolink_dl_wurq_recv` runs when the PL driver reports a finished wake-up request, which the
+mode handler starts in `ESTCOM_1` while the message handler is `INACTIVE_0`; the code's own
+comments name the transitions `mdh_T2/T3/T4`, `mdh_T5` and `mh_T1`. `dl-mh-wurq` and
+`dl-mode-wurq` give its sites those sources (the mode handler goes from 2 to 5 of 8 known).
+
+Unknown source states (5):
+
+| Site                                                 | Why                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------ |
+| `iolink_dl.c:768` `iolink_dl_mh_handle_com_lost`     | helper called from ERRORHANDLING_10, AW_REPLY_16, ERRORHANDLING_17 |
+| `iolink_dl.c:525` `iolink_dl_mode_h_sm_goto_operate` | helper called from the STARTUP_2 and PREOPERATE_3 functions        |
+| `iolink_dl.c:546` `iolink_dl_mode_h_sm_goto_idle`    | helper called from STARTUP_2, PREOPERATE_3 and OPERATE_4           |
+| `iolink_dl.c:556` `iolink_dl_mode_h_sm_goto_startup` | helper called from PREOPERATE_3 and OPERATE_4                      |
+| `iolink_cm.c:1073` `iolink_cm_init`                  | initialisation, no state yet                                       |
+
+"Sets off" counts every send in the per-state function, so all transitions out of a function
+that has one `os_event_set` list it, whichever branch posts it (a known limit, on the backlog).
+
+Cold sites with machines: TBD. The machines parse no extra files.
 
 ## Licence
 
