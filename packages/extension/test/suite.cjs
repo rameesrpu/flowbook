@@ -99,4 +99,31 @@ exports.run = async function run() {
     'go to reactor: landed on',
     here.document.lineAt(here.selection.active.line).text.trim(),
   );
+
+  // A state-machine lens on the fixture's setter call.
+  const link = await vscode.workspace.openTextDocument(vscode.Uri.file(`${root}/src/rt/sm_link.c`));
+  const setLine = link
+    .getText()
+    .split('\n')
+    .findIndex((s) => s.includes('link_set_state(l, LINK_ST_RUN)'));
+  const machineLens = await waitFor(
+    async () => {
+      const l = await vscode.commands.executeCommand(
+        'vscode.executeCodeLensProvider',
+        link.uri,
+        50,
+      );
+      return (l || []).find(
+        (x) =>
+          x.range.start.line === setLine && x.command && x.command.title.includes('IDLE → RUN'),
+      );
+    },
+    'state machine lens',
+    20000,
+  );
+  assert.equal(
+    machineLens.command.title,
+    '↳ Link state machine: IDLE → RUN on LINK_EV_START · sets off event → rt_main',
+  );
+  console.log('state machine lens:', machineLens.command.title);
 };

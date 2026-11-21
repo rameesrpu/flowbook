@@ -185,6 +185,10 @@ const pairingsOn = (index: ConnectionIndex, rel: string, line: number) =>
 
 const copyTarget = (r: Reactor): Reactor => ({ ...r });
 
+/** What `Go to Reactor` peeks for these pairings: their distinct shown reactors, copied. */
+export const reactorTargets = (pairings: Pairing[], sites: Site[]): Target[] =>
+  shownOf(pairings, sites).map(copyTarget);
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**

@@ -123,7 +123,7 @@ export class Flowbook implements vscode.Disposable {
     return this.ready.has(root) ? 'ready' : this.failed.has(root) ? 'failed' : 'pending';
   }
 
-  /** Scans every loaded root with rules, one after another, yielding to the event loop. */
+  /** Scans every loaded root with rules or machines, one after another, yielding to the event loop. */
   private async scanAll(generation: number): Promise<void> {
     const pause = () =>
       new Promise<void>((r) => setImmediate(r)).then(() => {
@@ -131,7 +131,7 @@ export class Flowbook implements vscode.Disposable {
       });
     for (const [root, state] of [...this.roots]) {
       const { connections } = state.ws;
-      if (connections.rules.length === 0) {
+      if (connections.rules.length === 0 && (connections.machines?.length ?? 0) === 0) {
         this.lastScans.delete(root);
         this.failed.delete(root);
         continue;

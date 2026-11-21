@@ -7,6 +7,7 @@ import { C_CPP_SELECTOR, FlowLenses, showUsages } from './codelens.js';
 import { ConnectionLenses, goTo } from './connections-lens.js';
 import { Flowbook } from './host.js';
 import { hasShim, installCli, installSkill, SKILL_DIR, type CliInstall } from './install.js';
+import { MachineLenses } from './machines-lens.js';
 import { Panels } from './panel.js';
 import { FlowsTree } from './tree.js';
 
@@ -53,6 +54,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
     vscode.window.registerTreeDataProvider('flowbook.flows', tree),
     vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new FlowLenses(flowbook)),
     vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new ConnectionLenses(flowbook)),
+    vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new MachineLenses(flowbook)),
     vscode.commands.registerCommand(
       'flowbook.goToReactor',
       (uri?: vscode.Uri, line?: number, targets?: Target[], prompt?: string) =>

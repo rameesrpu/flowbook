@@ -24,6 +24,12 @@ connection record confirms end in `· unconfirmed`; a send nothing reacts to sho
 lenses follow unsaved edits; the scan is refreshed when a source file or `connections.jsonl` is
 saved.
 
+With `machine` records in `.flowbook/machines.jsonl`, every state change (a setter call, an
+assignment or a transition-table row) gets a lens too:
+`↳ Link state machine: IDLE → RUN on LINK_EV_START · sets off event → rt_main`. An unknown
+source state reads `any state`; clicking a lens that sets something off jumps to or peeks its
+reactors, like `Go to Reactor`.
+
 Flows are written by agents using the Flowbook skill and the `flowbook` CLI; the extension is a
 read-only viewer.
 
@@ -31,4 +37,4 @@ read-only viewer.
 
 - `flowbook.codeLens.enabled` (default `true`): show CodeLens on C/C++ definitions.
 - `flowbook.connections.codeLens.enabled` (default `true`): show where a post, event or timer is
-  handled, and who posts to a handler.
+  handled, who posts to a handler, and state-machine transitions.

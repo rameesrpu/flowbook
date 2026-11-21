@@ -139,7 +139,7 @@
         "flowbook.connections.codeLens.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show where a post, event or timer is handled, and who posts to a handler."
+          "description": "Show where a post, event or timer is handled, who posts to a handler, and state-machine transitions."
         }
       }
     }

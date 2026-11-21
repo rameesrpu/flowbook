@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { ConnectionIndex, SymbolInfo, Target } from '@flowbook/resolver';
+import type { ConnectionIndex, MachineIndex, SymbolInfo, Target } from '@flowbook/resolver';
 import * as vscode from 'vscode';
 import {
   directTarget,
@@ -10,32 +10,55 @@ import {
   type ConnLens,
 } from './connections-model.js';
 import type { Flowbook } from './host.js';
+import { documentMachineIndex } from './machines-model.js';
 
 const enabled = () =>
   vscode.workspace.getConfiguration('flowbook').get<boolean>('connections.codeLens.enabled', true);
 
-type View =
+export type View =
   | { kind: 'none' | 'pending' | 'failed' }
-  | { kind: 'ready'; index: ConnectionIndex; rel: string; symbols: SymbolInfo[] };
+  | {
+      kind: 'ready';
+      index: ConnectionIndex;
+      machines: MachineIndex;
+      rel: string;
+      symbols: SymbolInfo[];
+    };
 
 /**
- * The connection index covering the document's current text. A saved document uses the root's
- * index while the root's scan is current for it; a document with unsaved edits, or one saved
- * after that scan began, is re-parsed and gets an index of its own.
+ * The connection and machine indexes covering the document's current text. A saved document uses
+ * the root's indexes while the root's scan is current for it; a document with unsaved edits, or
+ * one saved after that scan began, is re-parsed and gets indexes of its own.
  */
-function viewOf(flowbook: Flowbook, doc: vscode.TextDocument): View {
+export function viewOf(flowbook: Flowbook, doc: vscode.TextDocument): View {
   const hit = flowbook.locate(doc.uri.fsPath);
-  if (!hit || hit.state.ws.connections.rules.length === 0) return { kind: 'none' };
+  const connections = hit?.state.ws.connections;
+  if (!hit || !connections || (connections.rules.length === 0 && !connections.machines?.length))
+    return { kind: 'none' };
   const status = flowbook.scanStatus(hit.state.root);
   if (status !== 'ready') return { kind: status };
   const { state, rel } = hit;
   if (!doc.isDirty && flowbook.scanIsCurrent(state.root, doc.uri.fsPath)) {
     const symbols = state.scans.get(rel)?.symbols ?? [];
-    return { kind: 'ready', index: state.connectionIndex, rel, symbols };
+    return {
+      kind: 'ready',
+      index: state.connectionIndex,
+      machines: state.machineIndex,
+      rel,
+      symbols,
+    };
   }
-  const docScan = flowbook.resolver.scan(rel, doc.getText(), state.ws.connections.rules);
-  const index = documentIndex(state.ws.connections, state.scans, rel, docScan);
-  return { kind: 'ready', index, rel, symbols: docScan.symbols };
+  const docScan = flowbook.resolver.scan(
+    rel,
+    doc.getText(),
+    connections.rules,
+    connections.machines,
+  );
+  const index = documentIndex(connections, state.scans, rel, docScan);
+  const machines = connections.machines?.length
+    ? documentMachineIndex(connections, state.scans, rel, docScan, index)
+    : state.machineIndex;
+  return { kind: 'ready', index, machines, rel, symbols: docScan.symbols };
 }
 
 /** "↳ …" on send sites (where it runs) and on reactors (who posts to them). */
