@@ -1,7 +1,6 @@
 import {
   CONNECTIONS_FILE,
   isDispatcherForm,
-  matcherRegex,
   type Anchor,
   type ConnectionRecord,
   type Connections,
@@ -10,7 +9,7 @@ import {
   type RuleRecord,
 } from '@flowbook/core';
 import { match } from './resolver.js';
-import type { FileScan, Site } from './sites.js';
+import { compileName, type FileScan, type Site } from './sites.js';
 import type { SymbolInfo } from './symbols.js';
 
 /** A place in the code. Lines and columns are 0-based. */
@@ -70,7 +69,7 @@ export interface RuleSummary {
   unpaired: number;
   /** Units (keys, or send sites when unkeyed) with reactors but no receive site; not `paired`. */
   missingReceive: number;
-  /** Forwarding send sites without reactors; not `unpaired`. */
+  /** Forwarding send sites, with or without reactors; not `unpaired`, not in any unit. */
   forwarding: number;
   keyed: boolean;
 }
@@ -447,7 +446,7 @@ function checkForwarding(ctx: Context, sites: Site[], report: Report) {
     seen.add(at);
     const rule = ctx.rules.get(s.rule)!;
     const name = leaf(s.symbol);
-    const covered = (rule.send ?? []).some((m) => 'call' in m && matcherRegex(m.call).test(name));
+    const covered = (rule.send ?? []).some((m) => 'call' in m && compileName(m.call)?.test(name));
     if (covered) continue;
     const arg = s.key !== undefined ? 'key' : 'handler';
     report(
@@ -516,14 +515,14 @@ export function sendersOf(index: ConnectionIndex, target: { file: string; line: 
  * Counts per rule. A pairing unit is a key when the send site has one, otherwise the send site
  * itself. A unit with reactors counts as `missingReceive` when every send of it is missing its
  * receive site, otherwise as `paired`; `confirmed` counts paired units whose reactors are all
- * confirmed. Send sites without reactors count as `unpaired`, or as `forwarding` when they forward
- * a parameter of their function.
+ * confirmed. Send sites that forward a parameter of their function count as `forwarding` and form
+ * no unit; other send sites without reactors count as `unpaired`.
  */
 export function ruleSummaries(index: ConnectionIndex, connections: Connections): RuleSummary[] {
   return connections.rules.map((rule) => {
     const pairings = index.pairings.filter((p) => p.send.rule === rule.id);
     const units = new Map<string | Site, Pairing[]>();
-    for (const p of pairings) push(units, p.send.key ?? p.send, p);
+    for (const p of pairings) if (!p.forwarded) push(units, p.send.key ?? p.send, p);
     let paired = 0;
     let confirmed = 0;
     let missingReceive = 0;
@@ -537,9 +536,8 @@ export function ruleSummaries(index: ConnectionIndex, connections: Connections):
       paired++;
       if (reactors.every((r) => r.confirmed)) confirmed++;
     }
-    const silent = pairings.filter((p) => p.reactors.length === 0);
-    const forwarding = silent.filter((p) => p.forwarded).length;
-    const silentSends = silent.length - forwarding;
+    const forwarding = pairings.filter((p) => p.forwarded).length;
+    const silentSends = pairings.filter((p) => !p.forwarded && p.reactors.length === 0).length;
     const silentReceives = index.unpairedReceives.filter((s) => s.rule === rule.id).length;
     return {
       rule: rule.id,

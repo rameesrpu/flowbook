@@ -99,8 +99,8 @@ name, an identifier gives itself, anything else the compact text; without it, to
   reference / array declarators).
 - Pairing: a forwarding site gets `missingReceive` never; it keeps any handler reactors.
   `Pairing` gains `forwarded?: true` for consumers.
-- `ruleSummaries`: forwarding sites without reactors count in a new `forwarding` field, not in
-  `unpaired`. The `sites` summary appends `, N forwarding` when non-zero.
+- `ruleSummaries`: all forwarding send sites (with or without reactors) count in a new
+  `forwarding` field, not in `unpaired`, and form no key or send unit. The `sites` summary appends `, N forwarding` when non-zero.
 - `check` warning (on the rule record): `send site in <symbol> (<file>) forwards parameter "<param>"; no send matcher of rule "<id>" matches calls to <symbol>; add {"call":"<symbol>","key":<n>}`
   (or `"handler":<n>`). One warning per enclosing function.
 - `sites` line: `→ forwards parameter type (argument 3 of init_and_post_job)`. Lens: `↳ forwards

@@ -271,7 +271,7 @@ one definition is confirmed without a record. The summary `job: 5 send, 3 receiv
 paired (1 confirmed), 0 unpaired, 1 forwarding` counts keys (or sends, for rules without keys); a
 key is confirmed when all its reactors are. Keys missing their receive site are counted as
 `N without receive site` instead of paired, and `--unpaired` lists their send lines. Forwarding
-sites without reactors are counted as `N forwarding` and are not listed by `--unpaired`.
+send sites are counted as `N forwarding`, not as keys, and are not listed by `--unpaired`.
 
 ### Known limits
 

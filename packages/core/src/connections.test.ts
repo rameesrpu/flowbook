@@ -70,6 +70,12 @@ describe('1b rule fields', () => {
     ]);
   });
 
+  it('rejects an empty dispatcher', () => {
+    expect(diag(withConn(R, `,"receive":[]`))).toEqual([
+      'a dispatcher connection needs non-empty "receive"',
+    ]);
+  });
+
   it('rejects a dispatcher on a rule without receive matchers', () => {
     const text = `{"kind":"rule","id":"timer","title":"T","type":"timer","send":[{"call":"f","handler":2}]}\n{"kind":"connection","id":"d","rule":"timer","title":"T","receive":[${ANCHOR}]}`;
     expect(diag(text)).toEqual([

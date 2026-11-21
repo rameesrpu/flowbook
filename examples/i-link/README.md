@@ -42,7 +42,7 @@ Open `examples/i-link` (not the repository root) in VS Code to see the lenses.
 `flowbook sites --root examples/i-link` ends with:
 
 ```
-job: 45 send, 39 receive, 37 keys paired (37 confirmed), 3 unpaired, 1 without receive site, 2 forwarding
+job: 45 send, 39 receive, 36 keys paired (36 confirmed), 3 unpaired, 1 without receive site, 3 forwarding
 mbox: 9 send, 4 receive, 3 keys paired (3 confirmed), 0 unpaired
 dl-event: 21 send, 10 receive, 8 keys paired (8 confirmed), 5 unpaired
 ```
@@ -58,9 +58,7 @@ Against the grep counts in the design (27 job types at `iolink_post_job_with_typ
   It is the one key counted "without receive site".
 - The wrapper matchers (`init_and_post_job`, `ode_SMI_rw_req`, `ode_SMI_DeviceReadWrite_req`)
   and `job->type = …` add the 9 SMI job types, `PD_EVENT` and `EXIT`: 37 job types are sent in
-  all, 36 reach a `case`. The 37th paired key is the `job_type` parameter of the
-  `iolink_ode.c:447` wrapper: it forwards the type, but also names its handler
-  (`SMI_rw_req_cb`), which is a confirmed reactor.
+  all, and the 36 that reach a `case` are the 36 keys paired.
 - The `assign` matcher has `keys: "IOLINK_JOB_(PD_EVENT|EXIT)"`, so of the 8 assignments to
   `job->type` in `iolink_main.c` only the two real posts remain; the five assignments of
   `IOLINK_JOB_NONE` (resets in `iolink_main`, initialisation in `iolink_m_init`) and `job->type = type` inside the post helper give no site (51 → 45 sends).
@@ -76,10 +74,12 @@ Against the grep counts in the design (27 job types at `iolink_post_job_with_typ
 
 ### Forwarding sites
 
-Two send sites are listed as `→ forwards parameter …` and counted as `2 forwarding`, not as
-unpaired: `iolink_cm.c:1137` (`type`, argument 2 of `init_and_post_job`) and `iolink_ode.c:616`
-(`type`, argument 6 of `ode_SMI_DeviceReadWrite_req`). Their keys come from the callers, which
-the wrapper matchers match, so `check` has no warning for them.
+Three send sites forward a parameter of their function and are counted as `3 forwarding`, not
+as unpaired and not as keys. Two are listed as `→ forwards parameter …`: `iolink_cm.c:1137`
+(`type`, argument 2 of `init_and_post_job`) and `iolink_ode.c:616` (`type`, argument 6 of
+`ode_SMI_DeviceReadWrite_req`). The third, `iolink_ode.c:447` (`job_type`, argument 1 of `ode_SMI_rw_req`),
+also names its handler, so it is listed with that reactor (`→ SMI_rw_req_cb`). Their keys come
+from the callers, which the wrapper matchers match, so `check` has no warning for them.
 
 ### Unpaired sites
 

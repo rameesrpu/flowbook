@@ -159,7 +159,7 @@ export function validateConnections(c: Connections, file: string): Diagnostic[] 
     else if (k.send !== undefined && !(k.send.length && k.receive?.length))
       err(k, 'an anchored connection needs non-empty "send" and "receive"');
     else if (k.send === undefined && anchored && !k.receive?.length)
-      err(k, 'an anchored connection needs non-empty "send" and "receive"');
+      err(k, 'a dispatcher connection needs non-empty "receive"');
     else if (rule && isDispatcherForm(k) && !rule.receive?.length)
       err(k, `dispatcher connection "${k.id}": rule "${rule.id}" has no "receive" matchers`);
   }

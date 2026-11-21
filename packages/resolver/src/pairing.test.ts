@@ -627,6 +627,34 @@ describe('dispatcher connections', () => {
     }
   });
 
+  it('anchored connection wins for title over a dispatcher', () => {
+    const idx = build(
+      [
+        rule,
+        dispatcher('disp'),
+        {
+          kind: 'connection',
+          id: 'an',
+          rule: 'r',
+          title: 'Anchored A',
+          send: [{ file: 'a.c', symbol: 'sa' }],
+          receive: [{ file: 'a.c', symbol: 'disp' }],
+        },
+      ],
+      { 'a.c': source },
+    );
+    expect(pairingOf(idx, 'sa')).toMatchObject({ connection: 'an', title: 'Anchored A' });
+    expect(pairingOf(idx, 'sb')).toMatchObject({ connection: 'd', title: 'Dispatcher' });
+  });
+
+  it('a dispatcher of another rule does not confirm', () => {
+    const other: RuleRecord = { ...jobRule, id: 'r2', send: [{ call: 'nopost', key: 1 }] };
+    const idx = build([rule, other, dispatcher('disp', { rule: 'r2' })], { 'a.c': source });
+    const p = pairingOf(idx, 'sa')!;
+    expect(describeReactors(p)).toEqual(['key disp J_A false']);
+    expect(p.connection).toBeUndefined();
+  });
+
   it('registered reactors are confirmed by a dispatcher', () => {
     const records: Rec[] = [
       slotRule,
@@ -687,6 +715,32 @@ describe('forwarding send sites', () => {
     expect(idx2.diagnostics).toEqual([]);
     expect(describeReactors(pairingOf(idx2, 's'))).toEqual(['key disp J_A false']);
     expect(summaryOf(idx2, [covered], 'r')).toMatchObject({ forwarding: 1, unpaired: 0 });
+  });
+
+  it('does not throw on an invalid call matcher', () => {
+    const bad: RuleRecord = { ...rule, send: [...rule.send!, { call: 'wrap(', key: 1 }] };
+    const idx = build([bad], { 'a.c': source });
+    expect(idx.diagnostics.map((d) => d.message)).toEqual([
+      'send site in wrap (a.c) forwards parameter "type"; no send matcher of rule "r" matches calls to wrap; add {"call":"wrap","key":1}',
+    ]);
+  });
+
+  it('counts a forwarding site with reactors under forwarding, not as a key', () => {
+    const hr: RuleRecord = { ...jobRule, id: 'h', send: [{ call: 'post', key: 1, handler: 2 }] };
+    const idx = build([hr], {
+      'a.c':
+        'void post(int k, void (*f)(void));\nvoid x_cb(void) {}\nvoid wrap(int type) { post(type, x_cb); }\n',
+    });
+    const p = pairingOf(idx, 'wrap')!;
+    expect(p.forwarded).toBe(true);
+    expect(describeReactors(p)).toEqual(['handler x_cb - true']);
+    expect(summaryOf(idx, [hr], 'h')).toMatchObject({
+      send: 1,
+      paired: 0,
+      confirmed: 0,
+      forwarding: 1,
+      unpaired: 0,
+    });
   });
 
   it('gives one warning per enclosing function and names a forwarded handler', () => {
