@@ -15,8 +15,8 @@ How to use it:
 ## Current state (2026-11-21, end of session 2)
 
 - `main` (local) holds design 1b and the design 2 docs, merged from `design-1b-rule-format`
-  (`3bebdd6`) on top of the local A5/A1/B1 commits. **Not pushed**; `origin/main` is at the PR #1
-  merge. CI sequence green on the merge (253 tests).
+  (`3bebdd6`) on top of the local A5/A1/B1 commits. Pushed to `origin/main`
+  on 2026-11-21. CI sequence green on the merge (253 tests).
 - Design 2 (state machines) is designed and planned, not built. User: build it when the timing is
   right; CLI and editor lenses first, no webview diagram yet.
 - Next: build design 2 from `docs/superpowers/plans/2026-11-21-state-machines.md` on a branch
@@ -27,7 +27,8 @@ How to use it:
 - [x] Branches: `design-1b-rule-format` merged into local `main` (`3bebdd6`); push still waits
       for the user.
 - [x] Design 2 skimmed: CLI + lenses first, webview diagram later; build when the timing is right.
-- [ ] Push local `main` to `origin` (and delete the merged branches) — waits for the user.
+- [x] Push local `main` to `origin` (2026-11-21). Merged branches `design-1b-rule-format` and
+      `ccr-576e715a-wiy3tf` are kept; delete them when the user says so.
 - [ ] Publishing name (npm `flowbook` / `flowbook-cli` are taken) — only needed before release.
 
 ## Design 1 — Connection points and the editor jump (done)
