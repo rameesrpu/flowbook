@@ -1,5 +1,7 @@
 import {
   CONNECTIONS_FILE,
+  isDispatcherForm,
+  matcherRegex,
   type Anchor,
   type ConnectionRecord,
   type Connections,
@@ -44,6 +46,8 @@ export interface Pairing {
    * dispatcher has nothing that runs it. Its handler reactors are then unconfirmed.
    */
   missingReceive?: true;
+  /** Set when the send site forwards a parameter of its function (`send.forwards`). */
+  forwarded?: true;
 }
 
 export interface ConnectionIndex {
@@ -66,6 +70,8 @@ export interface RuleSummary {
   unpaired: number;
   /** Units (keys, or send sites when unkeyed) with reactors but no receive site; not `paired`. */
   missingReceive: number;
+  /** Forwarding send sites without reactors; not `unpaired`. */
+  forwarding: number;
   keyed: boolean;
 }
 
@@ -92,6 +98,8 @@ interface Context {
   /** Keyed connections by rule, then key. */
   keyed: Map<string, Map<string, Located<ConnectionRecord>>>;
   anchored: Anchored[];
+  /** Dispatcher connections with their anchors resolved; unresolved anchors are dropped. */
+  dispatchers: { record: Located<ConnectionRecord>; functions: Definition[] }[];
 }
 
 const leaf = (symbol: string) => symbol.slice(symbol.lastIndexOf(':') + 1);
@@ -186,10 +194,14 @@ function buildContext(
   }
   const keyed = new Map<string, Map<string, Located<ConnectionRecord>>>();
   const anchored: Anchored[] = [];
+  const dispatchers: Context['dispatchers'] = [];
   // Records with an unknown rule or a malformed form are reported by validateConnections.
   // Record-line order: the first keyed connection per key and the first covering anchored one win.
   for (const c of [...connections.connections].sort((a, b) => a.line - b.line)) {
-    if (!rules.has(c.rule)) continue;
+    const rule = rules.get(c.rule);
+    if (!rule) continue;
+    const resolve = (anchors: Anchor[]) =>
+      anchors.flatMap((a) => resolveAnchor(a, scans, (m) => report(c, m)) ?? []);
     if (isKeyedForm(c)) {
       if (!keyed.has(c.rule)) keyed.set(c.rule, new Map());
       const byKey = keyed.get(c.rule)!;
@@ -202,9 +214,9 @@ function buildContext(
           'warning',
         );
     } else if (isAnchoredForm(c)) {
-      const resolve = (anchors: Anchor[]) =>
-        anchors.flatMap((a) => resolveAnchor(a, scans, (m) => report(c, m)) ?? []);
       anchored.push({ record: c, send: resolve(c.send!), receive: resolve(c.receive!) });
+    } else if (isDispatcherForm(c) && rule.receive?.length) {
+      dispatchers.push({ record: c, functions: resolve(c.receive!) });
     }
   }
   return {
@@ -214,6 +226,7 @@ function buildContext(
     receivesByRule,
     keyed,
     anchored,
+    dispatchers,
   };
 }
 
@@ -231,8 +244,22 @@ function keyReceives(ctx: Context, send: Site): Site[] {
   return ctx.receivesByKey.get(send.rule)?.get(send.key) ?? [];
 }
 
-function keyReactors(receives: Site[], confirmed: boolean): Reactor[] {
-  return receives.map((r) => ({ ...siteTarget(r), via: 'key', key: r.key, confirmed }));
+/** The first dispatcher connection (by line) of the site's rule whose functions hold the site. */
+const dispatcherHolding = (ctx: Context, r: Site | undefined) =>
+  r &&
+  ctx.dispatchers.find((d) => d.record.rule === r.rule && d.functions.some((f) => inside(r, f)));
+
+/** A receive site is confirmed by a keyed connection that confirms, or by a dispatcher holding it. */
+const confirmedReceive = (ctx: Context, r: Site, confirms: boolean) =>
+  confirms || dispatcherHolding(ctx, r) !== undefined;
+
+function keyReactors(ctx: Context, receives: Site[], confirms: boolean): Reactor[] {
+  return receives.map((r) => ({
+    ...siteTarget(r),
+    via: 'key',
+    key: r.key,
+    confirmed: confirmedReceive(ctx, r, confirms),
+  }));
 }
 
 /**
@@ -245,11 +272,11 @@ function handlerReactors(candidates: Definition[], missingReceive: boolean): Rea
 }
 
 /** Pairing step 3: definitions of the handlers registered at the receive sites of step 1. */
-function registeredReactors(ctx: Context, receives: Site[], covered: boolean): Reactor[] {
+function registeredReactors(ctx: Context, receives: Site[], confirms: boolean): Reactor[] {
   return receives.flatMap((r) => {
     if (r.handler === undefined) return [];
     const defs = resolveHandler(ctx, r.handler, r.file);
-    const confirmed = covered && defs.length === 1;
+    const confirmed = confirmedReceive(ctx, r, confirms) && defs.length === 1;
     return defs.map((d): Reactor => ({ ...definitionTarget(d), via: 'registered', confirmed }));
   });
 }
@@ -314,21 +341,24 @@ function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[]
 
   const byKey = keyReceives(ctx, send);
   const anchored = anchoredReactors(ctx, send, covering, candidates);
+  // A forwarding site's key comes from its callers, so there is no receive site to miss.
   const missingReceive =
+    send.forwards === undefined &&
     send.key !== undefined &&
     !!rule?.receive?.length &&
     byKey.length === 0 &&
     anchored.receives.length === 0;
   const reactors = mergeReactors([
-    ...keyReactors(byKey, confirms),
+    ...keyReactors(ctx, byKey, confirms),
     ...registeredReactors(ctx, byKey, confirms),
     ...anchored.reactors,
     ...(anchored.picked ? [] : handlerReactors(candidates, missingReceive)),
   ]);
 
   const pairing: Pairing = { send, reactors };
-  // A keyed connection for the send's key, else the covering anchored one with the lowest line.
-  const connection = keyedBy ?? covering[0]?.record;
+  // A keyed connection for the send's key, else the covering anchored one with the lowest line,
+  // else the dispatcher holding the first key receive site.
+  const connection = keyedBy ?? covering[0]?.record ?? dispatcherHolding(ctx, byKey[0])?.record;
   if (connection) {
     pairing.connection = connection.id;
     pairing.title = connection.title;
@@ -337,6 +367,7 @@ function pairSend(ctx: Context, send: Site): { pairing: Pairing; reached: Site[]
   if (context !== undefined) pairing.context = context;
   if (candidates.length > 1 && !anchored.picked) pairing.candidates = candidates.length;
   if (missingReceive) pairing.missingReceive = true;
+  if (send.forwards) pairing.forwarded = true;
   return { pairing, reached: [...byKey, ...anchored.receives] };
 }
 
@@ -392,6 +423,41 @@ function checkAnchored(ctx: Context, sites: Site[], report: Report) {
   }
 }
 
+/** Errors: a dispatcher function that holds no receive site of the rule. */
+function checkDispatchers(ctx: Context, report: Report) {
+  for (const { record, functions } of ctx.dispatchers) {
+    const receives = ctx.receivesByRule.get(record.rule) ?? [];
+    for (const d of functions) {
+      if (!receives.some((s) => inside(s, d)))
+        report(record, `${d.file}#${d.info.symbol} has no receive site of rule "${record.rule}"`);
+    }
+  }
+}
+
+/**
+ * Warnings, on the rule record: a function holding a forwarding send site whose callers no `call`
+ * send matcher of the rule matches (by leaf symbol; `files` is ignored). One per function.
+ */
+function checkForwarding(ctx: Context, sites: Site[], report: Report) {
+  const seen = new Set<string>();
+  for (const s of sites) {
+    if (s.role !== 'send' || !s.forwards || s.symbol === undefined) continue;
+    const at = `${s.rule}\0${s.file}\0${s.symbol}\0${s.sig ?? ''}`;
+    if (seen.has(at)) continue;
+    seen.add(at);
+    const rule = ctx.rules.get(s.rule)!;
+    const name = leaf(s.symbol);
+    const covered = (rule.send ?? []).some((m) => 'call' in m && matcherRegex(m.call).test(name));
+    if (covered) continue;
+    const arg = s.key !== undefined ? 'key' : 'handler';
+    report(
+      rule,
+      `send site in ${s.symbol} (${s.file}) forwards parameter "${s.forwards.param}"; no send matcher of rule "${rule.id}" matches calls to ${s.symbol}; add {"call":"${s.symbol}","${arg}":${s.forwards.position}}`,
+      'warning',
+    );
+  }
+}
+
 type Report = (
   record: Located<{ id: string }>,
   message: string,
@@ -432,6 +498,8 @@ export function buildConnectionIndex(
   checkRules(ctx, sites, report);
   checkKeyed(ctx, pairings, report);
   checkAnchored(ctx, sites, report);
+  checkDispatchers(ctx, report);
+  checkForwarding(ctx, sites, report);
   // Stable: diagnostics of one record keep the order they were found in.
   diagnostics.sort((a, b) => a.line! - b.line!);
   return { sites, pairings, unpairedReceives, diagnostics };
@@ -448,7 +516,8 @@ export function sendersOf(index: ConnectionIndex, target: { file: string; line: 
  * Counts per rule. A pairing unit is a key when the send site has one, otherwise the send site
  * itself. A unit with reactors counts as `missingReceive` when every send of it is missing its
  * receive site, otherwise as `paired`; `confirmed` counts paired units whose reactors are all
- * confirmed.
+ * confirmed. Send sites without reactors count as `unpaired`, or as `forwarding` when they forward
+ * a parameter of their function.
  */
 export function ruleSummaries(index: ConnectionIndex, connections: Connections): RuleSummary[] {
   return connections.rules.map((rule) => {
@@ -468,7 +537,9 @@ export function ruleSummaries(index: ConnectionIndex, connections: Connections):
       paired++;
       if (reactors.every((r) => r.confirmed)) confirmed++;
     }
-    const silentSends = pairings.filter((p) => p.reactors.length === 0).length;
+    const silent = pairings.filter((p) => p.reactors.length === 0);
+    const forwarding = silent.filter((p) => p.forwarded).length;
+    const silentSends = silent.length - forwarding;
     const silentReceives = index.unpairedReceives.filter((s) => s.rule === rule.id).length;
     return {
       rule: rule.id,
@@ -478,6 +549,7 @@ export function ruleSummaries(index: ConnectionIndex, connections: Connections):
       confirmed,
       unpaired: silentSends + silentReceives,
       missingReceive,
+      forwarding,
       keyed: pairings.some((p) => p.send.key !== undefined),
     };
   });

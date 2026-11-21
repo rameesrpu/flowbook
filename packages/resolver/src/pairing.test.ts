@@ -125,6 +125,7 @@ describe('buildConnectionIndex on the fixture', () => {
         confirmed: 1,
         unpaired: 1,
         missingReceive: 0,
+        forwarding: 0,
         keyed: true,
       },
       {
@@ -135,6 +136,7 @@ describe('buildConnectionIndex on the fixture', () => {
         confirmed: 1,
         unpaired: 0,
         missingReceive: 0,
+        forwarding: 0,
         keyed: false,
       },
       {
@@ -145,6 +147,7 @@ describe('buildConnectionIndex on the fixture', () => {
         confirmed: 0,
         unpaired: 0,
         missingReceive: 0,
+        forwarding: 0,
         keyed: true,
       },
       {
@@ -155,6 +158,7 @@ describe('buildConnectionIndex on the fixture', () => {
         confirmed: 0,
         unpaired: 1,
         missingReceive: 0,
+        forwarding: 0,
         keyed: true,
       },
       {
@@ -165,6 +169,7 @@ describe('buildConnectionIndex on the fixture', () => {
         confirmed: 1,
         unpaired: 0,
         missingReceive: 0,
+        forwarding: 0,
         keyed: false,
       },
     ]);
@@ -528,5 +533,141 @@ describe('send sites whose key has no receive site', () => {
       confirmed: 1,
       missingReceive: 0,
     });
+  });
+});
+
+describe('dispatcher connections', () => {
+  const rule: RuleRecord = { ...jobRule, id: 'r' };
+  const dispatcher = (symbol: string, extra: Partial<ConnectionRecord> = {}): ConnectionRecord => ({
+    kind: 'connection',
+    id: 'd',
+    rule: 'r',
+    title: 'Dispatcher',
+    receive: [{ file: 'a.c', symbol }],
+    ...extra,
+  });
+  const source =
+    'void post(int);\nvoid sa(void) { post(J_A); }\nvoid sb(void) { post(J_B); }\nvoid sc(void) { post(J_C); }\n' +
+    'void disp(int t) { switch (t) { case J_A: case J_B: break; } }\n' +
+    'void other(int t) { switch (t) { case J_C: break; } }\nvoid helper(void) {}\n';
+
+  it('a dispatcher confirms key reactors inside its function', () => {
+    const idx = build([rule, dispatcher('disp')], { 'a.c': source });
+    for (const fn of ['sa', 'sb']) {
+      const p = pairingOf(idx, fn)!;
+      expect(describeReactors(p)).toEqual([`key disp ${fn === 'sa' ? 'J_A' : 'J_B'} true`]);
+      expect(p).toMatchObject({ connection: 'd', title: 'Dispatcher' });
+    }
+    expect(idx.diagnostics).toEqual([]);
+  });
+
+  it('a dispatcher does not confirm receive sites outside its function', () => {
+    const idx = build([rule, dispatcher('disp')], { 'a.c': source });
+    const p = pairingOf(idx, 'sc')!;
+    expect(describeReactors(p)).toEqual(['key other J_C false']);
+    expect(p.connection).toBeUndefined();
+  });
+
+  it('keyed connection wins for title', () => {
+    const idx = build(
+      [
+        rule,
+        dispatcher('disp'),
+        { kind: 'connection', id: 'ka', rule: 'r', title: 'Keyed A', key: 'J_A' },
+      ],
+      { 'a.c': source },
+    );
+    const p = pairingOf(idx, 'sa')!;
+    expect(p).toMatchObject({ connection: 'ka', title: 'Keyed A' });
+    expect(describeReactors(p)).toEqual(['key disp J_A true']);
+  });
+
+  it('dispatcher errors', () => {
+    const records: Rec[] = [
+      rule,
+      dispatcher('nope', { id: 'd1' }),
+      dispatcher('helper', { id: 'd2' }),
+    ];
+    const idx = build(records, { 'a.c': source });
+    expect(idx.diagnostics.map((d) => [d.id, d.severity, d.message])).toEqual([
+      ['d1', 'error', 'no definition for a.c#nope'],
+      ['d2', 'error', 'a.c#helper has no receive site of rule "r"'],
+    ]);
+    for (const fn of ['sa', 'sb', 'sc']) {
+      const p = pairingOf(idx, fn)!;
+      expect(p.reactors.every((r) => !r.confirmed)).toBe(true);
+      expect(p.connection).toBeUndefined();
+    }
+  });
+
+  it('registered reactors are confirmed by a dispatcher', () => {
+    const records: Rec[] = [
+      slotRule,
+      {
+        kind: 'connection',
+        id: 'reg',
+        rule: 'cb',
+        title: 'Registration',
+        receive: [{ file: 'a.c', symbol: 'setup' }],
+      },
+    ];
+    const idx = build(records, {
+      'a.c':
+        'struct s { void (*on_cb)(void); };\nvoid h(void) {}\nvoid setup(struct s *x) { x->on_cb = h; }\nvoid fire(struct s *p) { p->on_cb(); }\n',
+    });
+    const p = pairingOf(idx, 'fire')!;
+    expect(describeReactors(p)).toEqual(['key setup on_cb true', 'registered h - true']);
+    expect(p.connection).toBe('reg');
+    expect(idx.diagnostics).toEqual([]);
+  });
+});
+
+describe('forwarding send sites', () => {
+  const rule: RuleRecord = { ...jobRule, id: 'r' };
+  const source =
+    'void post(int);\nvoid wrap(int type) { post(type); }\nvoid s(void) { wrap(J_A); }\n' +
+    'void disp(int t) { switch (t) { case J_A: break; } }\n';
+
+  it('forwarding sites are not missing a receive', () => {
+    const idx = build([rule], { 'a.c': source });
+    const p = pairingOf(idx, 'wrap')!;
+    expect(p.send.forwards).toEqual({ param: 'type', position: 1 });
+    expect(p.missingReceive).toBeUndefined();
+    expect(p.forwarded).toBe(true);
+    expect(summaryOf(idx, [rule], 'r')).toMatchObject({
+      send: 1,
+      paired: 0,
+      forwarding: 1,
+      unpaired: 1,
+      missingReceive: 0,
+    });
+  });
+
+  it('warns when no matcher covers the wrapper', () => {
+    const idx = build([rule], { 'a.c': source });
+    expect(idx.diagnostics).toEqual([
+      {
+        severity: 'warning',
+        file: CONNECTIONS_FILE,
+        line: 1,
+        id: 'r',
+        message:
+          'send site in wrap (a.c) forwards parameter "type"; no send matcher of rule "r" matches calls to wrap; add {"call":"wrap","key":1}',
+      },
+    ]);
+    const covered: RuleRecord = { ...rule, send: [...rule.send!, { call: 'wrap', key: 1 }] };
+    const idx2 = build([covered], { 'a.c': source });
+    expect(idx2.diagnostics).toEqual([]);
+    expect(describeReactors(pairingOf(idx2, 's'))).toEqual(['key disp J_A false']);
+    expect(summaryOf(idx2, [covered], 'r')).toMatchObject({ forwarding: 1, unpaired: 0 });
+  });
+
+  it('gives one warning per enclosing function and names a forwarded handler', () => {
+    const idx = build([timerRule], {
+      'a.c': 'void arm(void (*f)(void));\nvoid twice(void (*cb)(void)) { arm(cb); arm(cb); }\n',
+    });
+    expect(idx.diagnostics.map((d) => d.message)).toEqual([
+      'send site in twice (a.c) forwards parameter "cb"; no send matcher of rule "tm" matches calls to twice; add {"call":"twice","handler":1}',
+    ]);
   });
 });
