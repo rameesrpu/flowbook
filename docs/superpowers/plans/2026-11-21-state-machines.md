@@ -2,18 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status:** not started. The user skims the design before the build (instruction of
-> 2026-11-21).
+> **Status:** not started. User ruling 2026-11-21: build it when the timing is right, CLI and
+> lenses first, no webview view yet.
 
 **Goal:** Find state-machine transitions in C/C++ (setter in a `case`, per-state functions,
 transition tables) from `machine` records, link each transition to the design-1 sends it sets
-off, and show them in `flowbook states`, `check`, editor lenses and a webview state diagram.
+off, and show them in `flowbook states`, `check` and editor lenses (the webview diagram comes
+later).
 
 **Architecture:** `machine`/`scope` records in `.flowbook/machines.jsonl`, parsed by core into
 the existing `Connections` object (so the scan, its cache key and the workspace loader carry them
 without new plumbing). The scan collects transition sites per file next to connection sites;
 `buildMachineIndex` derives source states across files and attaches pairings from the existing
-`ConnectionIndex`. CLI, extension and webview consume the index.
+`ConnectionIndex`. CLI and the extension lenses consume the index.
 
 **Tech Stack:** TypeScript, zod, web-tree-sitter, vitest, React 18 + @xyflow/react + elkjs.
 
@@ -25,8 +26,6 @@ without new plumbing). The scan collects transition sites per file next to conne
 - Records strict, ids unique per file, never line numbers; core free of Node APIs.
 - Schema changes: `core/src/*.ts`, `skill/flowbook/references/schema.md`, fixture and examples
   together; rebuild core to regenerate the JSON Schema.
-- Protocol changes touch webview and extension in the same task.
-- Webview: strict CSP, single bundle, ELK on the main thread.
 - Source state `"*"` is counted, never a warning (`--strict` stays usable).
 - Cold `flowbook sites` on p-net within 10 % of the 1b measurement.
 - Implementers don't commit or install; coordinator runs the CI sequence and commits per task.
@@ -129,19 +128,20 @@ both READMEs.
       numbers; README "State machines" section with measured counts and the unknown-source list
       with reasons; re-time cold `sites`.
 
-### Task 6: Lenses, command and machine view (Opus, integration, reviewed)
+### Task 6: Editor lenses (Sonnet)
 
-**Files:** `packages/core/src/protocol.ts` (`HostMessage` `{type:'machine', payload: MachinePayload}`;
-`WebviewMessage` `{type:'openMachine', id}`), `packages/extension/src/machines-lens.ts`,
-`extension.ts`, `panel.ts`, `package.json` (command `flowbook.showMachine`),
-`packages/webview/src/machine/*`, `App.tsx`.
+User ruling 2026-11-21: CLI and editor lenses are enough to start; the webview state diagram
+waits (see spec, "Later"). No protocol change.
 
-- [ ] Pure model tests for the lens title (`↳ <title>: IDLE → RUN on PNET_EVENT_STARTUP`) and the
-      payload builder (extension, no `vscode` import).
-- [ ] Webview: states as nodes, transitions as labelled edges via ELK, one `*` node; edge
-      selection → side panel with snippet, guard and triggers with `Go to` links. Screenshot with
-      headless Chrome on the fixture (CLAUDE.md command, `view=machine`) in light and dark.
-- [ ] e2e smoke: the command opens the panel on the fixture.
+**Files:** `packages/extension/src/machines-model.ts` (pure, no `vscode`) + test,
+`packages/extension/src/machines-lens.ts`, `extension.ts`.
+
+- [ ] Model tests: lens title `↳ <title>: IDLE → RUN on PNET_EVENT_STARTUP`, with
+      ` if <guard>` when present and ` · sets off <rule> → <reactor>` for the first trigger
+      (`+N more` after it); `* → X` shown as `any state → X`.
+- [ ] Lens on every transition site and table row; clicking it peeks the triggered reactors
+      (reuse the `Go to Reactor` peek); refreshed with the connection index.
+- [ ] e2e smoke: a lens appears on the fixture's setter call.
 
 ### Final review (most capable model)
 

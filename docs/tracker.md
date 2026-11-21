@@ -14,18 +14,20 @@ How to use it:
 
 ## Current state (2026-11-21, end of session 2)
 
-- Branch `design-1b-rule-format` (from `ccr-576e715a-wiy3tf` at `fbcc52a`): design 1b built and
-  reviewed; design 2 (state machines) designed and planned, **not built**. Not pushed, not merged.
-  CI sequence green.
-- Next: user skims `docs/superpowers/specs/2026-11-21-state-machines-design.md`; then build it
-  from `docs/superpowers/plans/2026-11-21-state-machines.md` (milestones 1–4 first, UI last).
+- `main` (local) holds design 1b and the design 2 docs, merged from `design-1b-rule-format`
+  (`3bebdd6`) on top of the local A5/A1/B1 commits. **Not pushed**; `origin/main` is at the PR #1
+  merge. CI sequence green on the merge (253 tests).
+- Design 2 (state machines) is designed and planned, not built. User: build it when the timing is
+  right; CLI and editor lenses first, no webview diagram yet.
+- Next: build design 2 from `docs/superpowers/plans/2026-11-21-state-machines.md` on a branch
+  `design-2-state-machines` when the user says so.
 
 ## Waiting on the user
 
-- [ ] Branches: `ccr-576e715a-wiy3tf` (design 1, on origin) and `design-1b-rule-format` (1b + design 2
-      docs, local only). Merge into `main` locally, push and open a PR, or keep. Nothing is pushed
-      until the user says so.
-- [ ] Skim design 2 before it is built (open questions at the end of the design 2 section).
+- [x] Branches: `design-1b-rule-format` merged into local `main` (`3bebdd6`); push still waits
+      for the user.
+- [x] Design 2 skimmed: CLI + lenses first, webview diagram later; build when the timing is right.
+- [ ] Push local `main` to `origin` (and delete the merged branches) — waits for the user.
 - [ ] Publishing name (npm `flowbook` / `flowbook-cli` are taken) — only needed before release.
 
 ## Design 1 — Connection points and the editor jump (done)
@@ -111,9 +113,13 @@ Rulings:
 3. No per-transition confirmation records (F4 lesson). Cost: nothing marks a single transition
    as reviewed.
 4. Unknown source states are counted, not warned. Cost: they can be ignored.
-5. Build order puts the webview view last; milestones 1–4 ship without UI.
+5. Build order puts the editor lenses last; milestones 1–4 ship without the editor.
+6. Guards stay in, display only: two transitions from one state and event differ only by their
+   `if`, and without the condition they look contradictory. Cost: one more field, about one
+   test; drop it if the lenses get too long.
 
 Open points (questions for the user, also in the session summary):
 
-- [ ] Is the state diagram view needed in the first cut, or are CLI + lenses enough?
-- [ ] Should guards be shown (one `if`, source text) or left out?
+- [x] Diagram view: not in the first cut (user, 2026-11-21); spec "Later" section.
+- [x] Guards: kept as display-only source text (ruling 6 below; user asked what they are, the spec
+      now explains with an i-link example).

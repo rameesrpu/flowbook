@@ -29,9 +29,10 @@ Success, measured on the pinned examples:
 
 - Goals: machine records; transitions found in the three shapes seen in the examples; source
   state, event and triggered sends per transition; `flowbook states`; `check` diagnostics;
-  editor lenses on transition sites; a read-only state diagram in the webview; skill guidance;
+  editor lenses on transition sites; skill guidance;
   machines for both examples.
-- Non-goals: data-flow analysis of the state variable; guards as expressions (shown as source
+- Non-goals: the webview state diagram (later, see below); data-flow analysis of the state
+  variable; guards as expressions (shown as source
   text only, when on one `if`); hierarchical / orthogonal states; generating code; flows that
   anchor to a transition (later, if asked).
 - Anti-goals: one confirmation record per transition (the F4 lesson: boilerplate an agent writes
@@ -101,8 +102,13 @@ Per file, after the connection sites:
   label or the end of the switch), else the enclosing function. Every design-1 send site inside
   the region is a trigger, shown with its pairing. For table rows, the region is the body of the
   `action` function.
-- **Guard**: when the set site is inside one `if` within the region, its condition text
-  (compacted, max 80 chars). Display only.
+- **Guard**: the condition that must hold for the transition to happen, when the set site is
+  inside one `if` within the region. Example: in i-link `iolink_dl_message_h_sm_startup2`,
+  `if (dl->message_handler.mhcmd == IOL_MHCMD_PREOPERATE) { … state = PREOPERATE_6; }` gives
+  STARTUP_2 → PREOPERATE_6 with guard `dl->message_handler.mhcmd==IOL_MHCMD_PREOPERATE`. The
+  same state and event can lead to different states under different guards, so without it two
+  transitions out of STARTUP_2 look contradictory. Source text, compacted, max 80 characters;
+  display only (CLI line `… if <guard>`, lens).
 - **States list**: every `case` label matching `states` in the machine's files, plus every
   `from`/`to` seen.
 - **Table rows**: an array declaration whose name matches `rows`, each element an initializer
@@ -138,16 +144,20 @@ src/src/device/pf_cmdev.c:4754: cmdev * → W_CIND in pf_cmdev_init
 State names drop the longest common prefix of the machine's states for display (`PF_CMSM_STATE_`).
 Summary per machine: `cmsm: 2 states, 4 transitions (4 from a case), 1 sets off`.
 
-### Extension and webview
+### Extension (lenses only)
 
-- Lens on each transition site: `↳ CM state machine: IDLE → RUN on PNET_EVENT_STARTUP`. Command
-  `Flowbook: Show State Machine` (also from the lens) opens the machine view.
-- Webview `machine` view: states as nodes, transitions as edges labelled by event (and `label`
-  when present), laid out with the existing ELK setup; `*` drawn as one "any state" node.
-  Selecting an edge shows the side panel with the site snippet, guard and triggered sends with
-  `Go to` links (existing snippet/jump messages). Read-only.
-- Protocol: `HostMessage` gains `{type:"machine", payload: MachinePayload}`; webview and
-  extension change in one task (CLAUDE.md rule).
+User ruling 2026-11-21: the CLI and editor lenses are enough to start.
+
+- Lens on each transition site: `↳ CM state machine: IDLE → RUN on PNET_EVENT_STARTUP · sets off
+sched → pf_cmsm_timeout`. Clicking it peeks the triggered reactors (the existing `Go to
+Reactor` peek). No protocol change.
+
+### Later: state diagram view
+
+A webview `machine` view (states as nodes, transitions as edges labelled by event, ELK layout,
+side panel with snippet, guard and triggers) and a `Flowbook: Show State Machine` command. It
+needs a `HostMessage` `{type:"machine"}` change in webview and extension together. Built only
+when the CLI and lenses have been used on a real stack.
 
 ### Skill
 
@@ -167,11 +177,11 @@ section with measured counts and the unknown-source list with reasons.
 2. Resolver: set sites, source state (a–d), events, regions/triggers, table rows; index + checks.
 3. CLI `states` + `check` integration; fixture machine (all four shapes); skill.
 4. Examples + READMEs (success numbers above measured here).
-5. Extension lenses + `Show State Machine`; webview machine view + protocol.
+5. Extension lenses.
 
-Milestones 1–4 are useful without UI; if time runs short, 5 waits.
+Milestones 1–4 are useful without the editor; the diagram view is not in this design's build.
 
 ## Left to the builder
 
-Exact diagnostic wording; prefix trimming details; ELK options for the machine view; whether
+Exact diagnostic wording; prefix trimming details; whether
 guard extraction covers `else if` chains (one level is enough).
