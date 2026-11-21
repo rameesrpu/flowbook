@@ -16,6 +16,7 @@ import {
 import {
   anchorDiagnostics,
   buildConnectionIndex,
+  buildMachineIndex,
   checkAnchors,
   fileLister,
   readWorkspace,
@@ -23,6 +24,7 @@ import {
   type AnchorStatus,
   type ConnectionIndex,
   type FileScan,
+  type MachineIndex,
   type ReadSource,
   type Resolver,
   type SymbolInfo,
@@ -38,7 +40,9 @@ export interface RootState {
   scans: Map<string, FileScan>;
   /** Pairings of `ws.connections` over `scans`. */
   connectionIndex: ConnectionIndex;
-  /** Workspace diagnostics, then anchor diagnostics, then connection diagnostics. */
+  /** State machines of `ws.connections` over `scans` and `connectionIndex`. */
+  machineIndex: MachineIndex;
+  /** Workspace diagnostics, then anchor diagnostics, then connection and machine diagnostics. */
   diagnostics: Diagnostic[];
 }
 
@@ -60,19 +64,29 @@ export function loadRoot(
     statuses,
     scans: new Map(),
     connectionIndex: buildConnectionIndex({ rules: [], connections: [] }, new Map()),
+    machineIndex: { machines: [], diagnostics: [] },
     diagnostics: [...ws.diagnostics, ...anchorDiagnostics(statuses)],
   };
   return scans ? withScans(state, scans) : state;
 }
 
-/** A root loaded without scans, given `scans`: its connection index and diagnostics are added. */
+/**
+ * A root loaded without scans, given `scans`: its connection and machine indexes and their
+ * diagnostics are added.
+ */
 export function withScans(state: RootState, scans: Map<string, FileScan>): RootState {
   const connectionIndex = buildConnectionIndex(state.ws.connections, scans);
+  const machineIndex = buildMachineIndex(state.ws.connections, scans, connectionIndex);
   return {
     ...state,
     scans,
     connectionIndex,
-    diagnostics: [...state.diagnostics, ...connectionIndex.diagnostics],
+    machineIndex,
+    diagnostics: [
+      ...state.diagnostics,
+      ...connectionIndex.diagnostics,
+      ...machineIndex.diagnostics,
+    ],
   };
 }
 
@@ -294,10 +308,13 @@ export function lensTargets(
   return out;
 }
 
-/** Root directory for a `.flowbook/{config,connections}.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
+/** Root directory for a `.flowbook/{config,connections,machines}.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
 export function rootOfFlowbookFile(path: string): string | undefined {
   const p = path.split('\\').join('/');
-  const m = /^(.*)\/\.flowbook\/(?:config\.jsonl|connections\.jsonl|flows\/[^/]+\.jsonl)$/.exec(p);
+  const m =
+    /^(.*)\/\.flowbook\/(?:config\.jsonl|connections\.jsonl|machines\.jsonl|flows\/[^/]+\.jsonl)$/.exec(
+      p,
+    );
   return m ? m[1] || '/' : undefined;
 }
 

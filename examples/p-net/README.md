@@ -24,6 +24,7 @@ examples/p-net/
   fetch.sh                  clones p-net into src/ and checks out the pinned commit
   src/                      p-net sources (not committed, gitignored); the stack itself is src/src/
   .flowbook/connections.jsonl  rules and connections (committed); paths are relative to examples/p-net/
+  .flowbook/machines.jsonl     state machines and scopes (committed)
 ```
 
 ## Fetch the source
@@ -32,6 +33,7 @@ examples/p-net/
 examples/p-net/fetch.sh
 pnpm flowbook sites --root examples/p-net
 pnpm flowbook check --root examples/p-net
+pnpm flowbook states --root examples/p-net
 ```
 
 Open `examples/p-net` (not the repository root) in VS Code to see the lenses.
@@ -77,6 +79,57 @@ and counted as `1 forwarding`, not as unpaired. The second send matcher matches 
 | `pf_plugsm.c:117` app-cb send `sm_released_cb`  | the test fixture does not register it                             |
 | `pf_fspm.c:1389` app-cb send `reset_cb`         | the test fixture only assigns `NULL`, which is not a registration |
 
+## State machines
+
+`.flowbook/machines.jsonl` has six machines, one per state variable, each found by its setter
+call (`pf_<x>_set_state (…, STATE)`), and one `scope` record (two functions). Measured on 2026-11-21 with
+`flowbook states --root examples/p-net`:
+
+| Machine | States | Transitions | Source state found by               | Sets off |
+| ------- | ------ | ----------- | ----------------------------------- | -------- |
+| `cmsm`  | 2      | 4           | 4 case                              | 1        |
+| `cmdev` | 11     | 22          | 11 case, 7 test, 2 scope, 2 unknown | 0        |
+| `cmpbe` | 7      | 16          | 14 case, 2 test                     | 0        |
+| `cmio`  | 4      | 8           | 8 case                              | 3        |
+| `ppm`   | 2      | 2           | 2 unknown                           | 0        |
+| `cpm`   | 3      | 9           | 6 case, 3 unknown                   | 1        |
+
+"case" is the enclosing state `case`; "test" is a setter inside `if (<state> == STATE)`. A setter
+under several state labels gives one transition per label (`pf_cmdev_rm_release_ind`: one call,
+five transitions), and a fall-through group of event labels one per event.
+`flowbook check --strict` stays clean and ends with `7 unknown source states`.
+
+Success checks from the design:
+
+- CMSM: exactly the four transitions a reader finds: `IDLE → RUN on PNET_EVENT_STARTUP · sets
+off sched → pf_cmsm_timeout`, `RUN → IDLE on PNET_EVENT_DATA`, `RUN → IDLE on
+PNET_EVENT_ABORT`, and `RUN → IDLE in pf_cmsm_timeout` (source from the timeout's own `case`,
+  no scope needed).
+- CMDEV: 18 setter calls (19 with the definition), 22 transitions. Without scopes 18 of 22
+  (82 %) have a known source, short of the 90 % target. With the scope `cmdev-connect` 20 of 22
+  (91 %): `pf_cmdev_rm_connect_ind` and `pf_cmdev_cm_connect_rsp_neg` (read: the AR is zeroed by
+  `pf_ar_allocate` just before `pf_cmdev_rm_connect_ind`, and `…_rsp_neg` is only called from
+  its failure branch, so both run in `POWER_ON`). With the genuine any-state abort
+  `pf_cmdev_cm_abort` left out: 18 of 21 (86 %) without scopes, 20 of 21 (95 %) with them.
+
+Unknown source states (7):
+
+| Site                                                   | Why                                                      |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| `pf_cmdev.c:1495` `pf_cmdev_cm_abort` → ABORT          | any state (the code says so)                             |
+| `pf_cmdev.c:4819` `…_cm_connect_rsp_pos` → W_CIND      | `else` of `if (cmdev_state == W_CRES)`: any other state  |
+| `pf_ppm.c:377` `pf_ppm_activate_req` → RUN             | returns early in RUN, so the source is W_START; not read |
+| `pf_ppm.c:415`, `pf_cpm.c:161` `…_close_req` → W_START | any state                                                |
+| `pf_cpm.c:136` `pf_cpm_create` → W_START               | initialisation, no state yet                             |
+| `pf_cpm_driver_lan9662.c:204` `…_ci_timeout` → W_START | data hold timer expired; any running state               |
+
+Two things to know when reading the list: the source is the state on entry, so
+`pf_cmdev.c:4992` shows `W_PEIND → W_ARDY` although the line before it set `W_PERES`; and
+"sets off" counts every send in the transition's `case`, including sends in sibling branches
+(a known limit, on the backlog): the three `cmio` transitions out of `STARTUP` all list
+`sched → pf_cmio_timer_expired`, which only the `PNET_EVENT_PRMEND` branch posts, so `cmio`'s
+3 is really 1.
+
 ## Scan times
 
 Measured on 2026-11-15 on the development machine (Intel Core i3-8145U, 4 threads, Node 22),
@@ -90,9 +143,18 @@ tests); the prefilter lets 29 of them through to the parser.
 | second `scanRoot` with the same cache (nothing changed)                         | 12 ms  | < 1 s  |
 | `buildConnectionIndex` over all scans                                           | 0.7 ms |        |
 | rescan of `pf_cmrpc.c` (5,681 lines) plus a new index, as for an unsaved edit   | 102 ms |        |
+| cold `sites` with machines, relative to rules only (2026-11-21, under load)     | +4.5 % | ≤ 10 % |
+
+The 2026-11-21 row comes from alternating runs with and without `machines.jsonl` (9 each) on a
+busy machine (load average 3–5): medians 3.22 s with machines, 3.08 s without; cold `states`
+2.93 s. Two earlier sets gave +2.4 % and +7.7 %. Absolute times on this laptop moved between
+1.4 s and 3.1 s with load during the day, so only the relative cost is meaningful; re-time on a
+quiet machine.
 
 Parsing dominates the cold scan. A rule whose names have no literal fragment (every file is
-parsed) takes the first scan to 1.5 s.
+parsed) takes the first scan to 1.5 s. The machines let 3 more files through the prefilter (32
+instead of 29: `pf_cmpbe.c`, `pf_ppm.c`, `pf_cpm.c`, which hold setters); `states` uses the
+same single scan.
 
 ## Licence
 

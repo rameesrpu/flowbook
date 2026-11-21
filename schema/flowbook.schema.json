@@ -740,6 +740,283 @@
           "additionalProperties": false
         }
       ]
+    },
+    "machinesLine": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "machine"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "states": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Regular expression for state names"
+            },
+            "events": {
+              "description": "Regular expression for event names",
+              "type": "string",
+              "minLength": 1
+            },
+            "set": {
+              "description": "Sites that set the state; each must yield a key",
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "call": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "key": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "1-based argument position"
+                      },
+                      "handler": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "1-based argument position"
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "call"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "assign": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "as": {
+                        "type": "string",
+                        "enum": [
+                          "key",
+                          "handler"
+                        ]
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "assign",
+                      "as"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rows": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Regular expression for the array names that hold transition rows"
+                  },
+                  "event": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ],
+                    "description": "1-based position, or the name of a designator field"
+                  },
+                  "to": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ],
+                    "description": "1-based position, or the name of a designator field"
+                  },
+                  "action": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    ],
+                    "description": "1-based position, or the name of a designator field"
+                  },
+                  "from": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Array name (row group) to the source state of its rows"
+                  }
+                },
+                "required": [
+                  "rows",
+                  "event",
+                  "to",
+                  "from"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "files": {
+              "description": "Globs limiting where it applies",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "context": {
+              "type": "string"
+            },
+            "notes": {
+              "description": "Markdown text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "title",
+            "states"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scope"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "machine": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+              "description": "Id of the machine it belongs to"
+            },
+            "state": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Source state of every set site inside `in`"
+            },
+            "in": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Repo-relative path to the source file, e.g. \"src/net/tls.c\""
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Qualified symbol name, e.g. \"parse_header\" or \"net::TlsSession::handshake\""
+                  },
+                  "sig": {
+                    "description": "Parameter types to pick one overload, e.g. \"(const char*, size_t)\"",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file",
+                  "symbol"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "machine",
+            "state",
+            "in"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }

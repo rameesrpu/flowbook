@@ -127,7 +127,7 @@ describe('buildConnectionIndex on the fixture', () => {
       )
       .map((p) => `${p.send.file}:${p.send.line}`);
     expect(order).toEqual(sorted);
-    expect(index.pairings).toHaveLength(11);
+    expect(index.pairings).toHaveLength(13);
   });
 
   it('sendersOf a case line returns its posters', () => {
@@ -168,7 +168,7 @@ describe('buildConnectionIndex on the fixture', () => {
       },
       {
         rule: 'event',
-        send: 1,
+        send: 3,
         receive: 1,
         paired: 1,
         confirmed: 1,

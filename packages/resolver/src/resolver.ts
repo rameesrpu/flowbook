@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { normalizeSig, type Anchor, type RuleRecord } from '@flowbook/core';
+import { normalizeSig, type Anchor, type MachineRecord, type RuleRecord } from '@flowbook/core';
 import { Language, Parser } from 'web-tree-sitter';
+import { machineHooks } from './machines.js';
 import { collectSites, type FileScan } from './sites.js';
 import { collectSymbols, type SymbolInfo } from './symbols.js';
 
@@ -66,14 +67,20 @@ export class Resolver {
     }
   }
 
-  /** Symbols and connection sites of one file from a single parse. No rules gives no sites. */
-  scan(path: string, text: string, rules: RuleRecord[]): FileScan {
+  /**
+   * Symbols, connection sites and transition sites of one file from a single parse and walk. No
+   * rules gives no sites; no machines gives no transitions.
+   */
+  scan(path: string, text: string, rules: RuleRecord[], machines: MachineRecord[] = []): FileScan {
     const parser = C_EXTENSIONS.test(path) ? this.cParser : this.cppParser;
     const tree = parser.parse(text);
-    if (!tree) return { symbols: [], sites: [] };
+    const empty = { sites: [], transitions: [], stateCalls: [], stateLabels: [] };
+    if (!tree) return { symbols: [], ...empty };
     try {
       const symbols = collectSymbols(tree);
-      return { symbols, sites: collectSites(tree, path, rules, symbols) };
+      const m = machineHooks(path, machines, symbols);
+      const sites = collectSites(tree, path, rules, symbols, m?.hooks);
+      return { ...empty, symbols, sites, ...m?.result };
     } finally {
       tree.delete();
     }

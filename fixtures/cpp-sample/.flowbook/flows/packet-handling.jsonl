@@ -1,13 +1,13 @@
 {"kind":"flow","id":"packet-handling","title":"Packet handling","summary":"What happens when a registered socket becomes readable: the loop dispatches to the `on_packet` callback, which parses the packet and stops the loop on malformed input.","entry":"run","tags":["data-path"]}
-{"kind":"node","id":"run","title":"Event loop","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::run"},"fp":"51bcd000d49c","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"dispatch","title":"Dispatch readable fd","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::dispatch"},"fp":"32b75c867cae","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"on-packet","title":"Packet callback","notes":"Registered in `server_run`; receives the loop as `ctx`.","anchor":{"file":"src/net/server.cpp","symbol":"on_packet"},"fp":"303e52dbd8a4","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"feed","title":"Parse packet","notes":"Header is 2 bytes type + 2 bytes size, big-endian.","anchor":{"file":"src/proto/parser.cpp","symbol":"proto::Parser::feed"},"fp":"65da5b441f31","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"check-len","title":"Length guard","anchor":{"file":"src/proto/parser.cpp","symbol":"CHECK_LEN"},"fp":"b11a65086428","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"read-be","title":"Read big-endian field","anchor":{"file":"src/proto/parser.hpp","symbol":"proto::read_be"},"fp":"2d129768c504","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"valid-type","title":"Validate type","anchor":{"file":"src/proto/parser.cpp","symbol":"valid_type"},"fp":"387456f34bc9","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"log","title":"Log warning","anchor":{"file":"src/util/log.c","symbol":"log_write"},"fp":"493e3d422ccf","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
-{"kind":"node","id":"stop","title":"Stop loop","anchor":{"file":"src/net/event_loop.hpp","symbol":"net::EventLoop::stop"},"fp":"4d7d7f4f09df","verified":"137e29ea5f15bca41762a30ea7cc272be3c0720e"}
+{"kind":"node","id":"run","title":"Event loop","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::run"},"fp":"51bcd000d49c","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"dispatch","title":"Dispatch readable fd","anchor":{"file":"src/net/event_loop.cpp","symbol":"net::EventLoop::dispatch"},"fp":"32b75c867cae","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"on-packet","title":"Packet callback","notes":"Registered in `server_run`; receives the loop as `ctx`.","anchor":{"file":"src/net/server.cpp","symbol":"on_packet"},"fp":"303e52dbd8a4","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"feed","title":"Parse packet","notes":"Header is 2 bytes type + 2 bytes size, big-endian.","anchor":{"file":"src/proto/parser.cpp","symbol":"proto::Parser::feed"},"fp":"65da5b441f31","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"check-len","title":"Length guard","anchor":{"file":"src/proto/parser.cpp","symbol":"CHECK_LEN"},"fp":"b11a65086428","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"read-be","title":"Read big-endian field","anchor":{"file":"src/proto/parser.hpp","symbol":"proto::read_be"},"fp":"2d129768c504","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"valid-type","title":"Validate type","anchor":{"file":"src/proto/parser.cpp","symbol":"valid_type"},"fp":"387456f34bc9","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"log","title":"Log warning","anchor":{"file":"src/util/log.c","symbol":"log_write"},"fp":"493e3d422ccf","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
+{"kind":"node","id":"stop","title":"Stop loop","anchor":{"file":"src/net/event_loop.hpp","symbol":"net::EventLoop::stop"},"fp":"4d7d7f4f09df","verified":"b4f91a1552774c22ce3e629fc4a0c2cca5baf3f6"}
 {"kind":"step","id":"s1","seq":1,"from":"run","to":"dispatch","label":"next registered fd"}
 {"kind":"step","id":"s2","seq":2,"from":"dispatch","to":"on-packet","label":"invoke registered callback","type":"callback"}
 {"kind":"step","id":"s3","seq":3,"from":"on-packet","to":"feed","label":"parse bytes"}

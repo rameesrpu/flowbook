@@ -12,15 +12,12 @@ How to use it:
   **waiting on the user**.
 - Keep entries one or two lines. Detail belongs in the design doc, the plan or the commit.
 
-## Current state (2026-11-21, end of session 2)
+## Current state (2026-11-21, end of session 3)
 
-- `main` (local) holds design 1b and the design 2 docs, merged from `design-1b-rule-format`
-  (`3bebdd6`) on top of the local A5/A1/B1 commits. Pushed to `origin/main`
-  on 2026-11-21. CI sequence green on the merge (253 tests).
-- Design 2 (state machines) is designed and planned, not built. User: build it when the timing is
-  right; CLI and editor lenses first, no webview diagram yet.
-- Next: build design 2 from `docs/superpowers/plans/2026-11-21-state-machines.md` on a branch
-  `design-2-state-machines` when the user says so.
+- Design 2 (state machines) built on `design-2-state-machines` (CLI + editor lenses; webview
+  diagram is backlog G1), merged into local `main`. **Not pushed** — waits for the user.
+  CI sequence green (324 tests, e2e lens smoke test passes).
+- Next: user pushes `main`; then design 3 (walkthrough mode) or Track G follow-ups.
 
 ## Waiting on the user
 
@@ -29,6 +26,7 @@ How to use it:
 - [x] Design 2 skimmed: CLI + lenses first, webview diagram later; build when the timing is right.
 - [x] Push local `main` to `origin` (2026-11-21). Merged branches `design-1b-rule-format` and
       `ccr-576e715a-wiy3tf` are kept; delete them when the user says so.
+- [ ] Push local `main` (design 2 merge) to `origin`; delete merged branches when the user says so.
 - [ ] Publishing name (npm `flowbook` / `flowbook-cli` are taken) — only needed before release.
 
 ## Design 1 — Connection points and the editor jump (done)
@@ -98,29 +96,61 @@ Open points:
 Measured: i-link records 48 → 8 (mbox 13/13 paired, 0 unpaired; job 36 keys, 3 forwarding); p-net 13 → 4. Numbers in both
 READMEs.
 
-## Design 2 — State machines (designed, not built)
+## Design 2 — State machines (done)
 
 Design `docs/superpowers/specs/2026-11-21-state-machines-design.md`, plan
-`docs/superpowers/plans/2026-11-21-state-machines.md`.
+`docs/superpowers/plans/2026-11-21-state-machines.md`. Records in `.flowbook/machines.jsonl`;
+transitions found in the scan; `flowbook states`; machine checks in `check`; transition lenses.
 
-Rulings:
+Design rulings (session 2):
 
 1. `machine` and `scope` records live in a separate `.flowbook/machines.jsonl` but load into the
-   existing `Connections` object, so scan, cache key and loader need no new plumbing. Cost: a
-   later split if machines grow their own lifecycle.
-2. Source state derived in order: enclosing state `case`, `scope` record, unique calling state
-   `case`, else `*`. Transition tables need an agent-written `from` map. Cost: tables whose
-   index→state map changes go stale silently until `check` sees an unknown state.
-3. No per-transition confirmation records (F4 lesson). Cost: nothing marks a single transition
-   as reviewed.
+   existing `Connections` object. Cost: a later split if machines grow their own lifecycle.
+2. Source state derived from code where possible; tables need an agent-written `from` map. Cost:
+   a changed index→state map goes stale until `check` sees an unknown state.
+3. No per-transition confirmation records (F4 lesson). Cost: nothing marks one transition reviewed.
 4. Unknown source states are counted, not warned. Cost: they can be ignored.
-5. Build order puts the editor lenses last; milestones 1–4 ship without the editor.
-6. Guards stay in, display only: two transitions from one state and event differ only by their
-   `if`, and without the condition they look contradictory. Cost: one more field, about one
-   test; drop it if the lenses get too long.
+5. Editor lenses built last; milestones 1–4 ship without the editor.
+6. Guards are display-only source text. Cost: one more field.
 
-Open points (questions for the user, also in the session summary):
+Build rulings (session 3):
 
-- [x] Diagram view: not in the first cut (user, 2026-11-21); spec "Later" section.
-- [x] Guards: kept as display-only source text (ruling 6 below; user asked what they are, the spec
-      now explains with an i-link example).
+7. `Connections.machines`/`scopes` are optional fields. Cost: `?? []` at each reader.
+8. Prefilter fragments also come from `states`, only inside each machine's `files` globs. Cost:
+   p-net parses 32 files instead of 29.
+9. Files named by `scope` anchors are always parsed and join the cache key. Cost: none.
+10. Task 6 (lenses) on Opus, not Sonnet; Task 3 dispatched while Task 2 was in review. Cost: tokens.
+11. Timing judged as relative cost (alternating runs with and without `machines.jsonl`), because
+    absolute cold times on this laptop moved 1.4–3.1 s with load during the session. Measured
+    +2.4 %, +7.7 %, +4.5 % (p-net). Cost: drift since 1b is not visible; re-time when quiet.
+12. Event fallback is display-only: CLI and lens show `in <function>` when no event case. Cost:
+    JSON consumers must do the same.
+13. "`from` key matches no table" sees only tables with a kept row. Cost: a rare false error.
+14. A fall-through group with several event labels gives one transition per event (p-net CMSM
+    RUN → IDLE on DATA and on ABORT).
+15. New source derivation `test` (setter inside `if (state == X)`), after `case`: not in the
+    spec's a–d list, but it is the CMDEV/CMPBE shape and as strong as a case. `||` with a
+    non-state operand, `!=` and `else` give no source. Cost: one more `via` value.
+16. Guards drop comments; a guard equal to the test `if` is omitted; for a test source the
+    guard and triggers come from the `if`'s consequence.
+17. Triggers still count sends in sibling branches (backlog G2). Cost: "sets off" over-reports
+    (p-net cmio 3 vs 1).
+18. CMDEV reaches 18/22 (82 %) known without scopes against the spec's 90 %; 20/22 (91 %) with
+    one scope; 18/21 (86 %) without the genuine any-state abort. Accepted, not chased with more
+    rules (the `else` case needs negation). Cost: spec target missed by two transitions.
+19. Lenses group transitions sharing site, target, event and guard (`A, B → C`); the CLI keeps
+    one line each. A computed key `c ? A : B` gives two transitions.
+20. Reviews: task reviewers only on Tasks 2 and 3 (plus scoped re-reviews of both fix rounds);
+    final review on Fable. Cost: Tasks 1, 4, 5, 6 unreviewed until the final review, which found
+    two wrong-source bugs (nested callers, `||` tests), both fixed.
+
+Measured (2026-11-21): p-net 6 machines, 7 unknown sources; CMSM exactly the spec's 4
+transitions incl. `sched → pf_cmsm_timeout`; i-link DL message handler 30/33 (91 %) known without
+scopes, 32/33 with; CM 32 rows → 32 transitions with `from` map and actions. Numbers in both
+READMEs.
+
+Open points:
+
+- [x] Diagram view: not in the first cut (user, 2026-11-21) → backlog G1.
+- [x] Guards: kept as display-only source text.
+- [ ] Track G follow-ups (G2 sibling-branch triggers, G3 small items).

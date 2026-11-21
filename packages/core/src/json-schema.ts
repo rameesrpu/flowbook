@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ConnectionsFileRecord } from './connections.js';
+import { MachinesFileRecord } from './machines.js';
 import { ConfigFileRecord, FlowFileRecord } from './schema.js';
 
 /** JSON Schemas for one line of a flow file and one line of the config file. */
@@ -11,6 +12,7 @@ export function jsonSchemas() {
       flowLine: z.toJSONSchema(FlowFileRecord, { io: 'input' }),
       configLine: z.toJSONSchema(ConfigFileRecord, { io: 'input' }),
       connectionsLine: z.toJSONSchema(ConnectionsFileRecord, { io: 'input' }),
+      machinesLine: z.toJSONSchema(MachinesFileRecord, { io: 'input' }),
     },
   };
 }

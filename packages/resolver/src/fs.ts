@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import {
   CONFIG_FILE,
   CONNECTIONS_FILE,
+  MACHINES_FILE,
   FLOWBOOK_DIR,
   FLOWS_DIR,
   loadWorkspace,
@@ -71,7 +72,11 @@ export function readWorkspace(root: string): Workspace {
   const connections = existsSync(connectionsPath)
     ? { path: CONNECTIONS_FILE, text: readFileSync(connectionsPath, 'utf8') }
     : undefined;
-  return loadWorkspace(config, flows, connections);
+  const machinesPath = join(root, MACHINES_FILE);
+  const machines = existsSync(machinesPath)
+    ? { path: MACHINES_FILE, text: readFileSync(machinesPath, 'utf8') }
+    : undefined;
+  return loadWorkspace(config, flows, connections, machines);
 }
 
 export function sourceReader(root: string): ReadSource {

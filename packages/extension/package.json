@@ -29,6 +29,7 @@
     "workspaceContains:**/.flowbook",
     "workspaceContains:**/.flowbook/config.jsonl",
     "workspaceContains:**/.flowbook/connections.jsonl",
+    "workspaceContains:**/.flowbook/machines.jsonl",
     "workspaceContains:**/.flowbook/flows/*.jsonl"
   ],
   "contributes": {
@@ -139,7 +140,7 @@
         "flowbook.connections.codeLens.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show where a post, event or timer is handled, and who posts to a handler."
+          "description": "Show where a post, event or timer is handled, who posts to a handler, and state-machine transitions."
         }
       }
     }

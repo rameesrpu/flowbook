@@ -1,17 +1,22 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve as resolvePath } from 'node:path';
-import { CONNECTIONS_FILE, type Anchor } from '@flowbook/core';
+import { CONNECTIONS_FILE, MACHINES_FILE, type Anchor } from '@flowbook/core';
 import {
   anchorDiagnostics,
   buildConnectionIndex,
+  buildMachineIndex,
   checkAnchors,
   fileLister,
+  machineSummaries,
   headCommitFor,
   readWorkspace,
   ruleSummaries,
   scanRoot,
   sourceReader,
   type ConnectionIndex,
+  type MachineView,
+  type Transition,
+  type Via,
   type OnSkip,
   type Pairing,
   type Reactor,
@@ -36,17 +41,18 @@ const skipped =
 export function check(ctx: Context, opts: { strict?: boolean; json?: boolean } = {}): number {
   const ws = readWorkspace(ctx.root);
   const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver, fileLister(ctx.root));
-  const index =
-    ws.connections.rules.length > 0
-      ? buildConnectionIndex(
-          ws.connections,
-          scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx)),
-        )
+  const hasMachines = (ws.connections.machines ?? []).length > 0;
+  const scans =
+    ws.connections.rules.length > 0 || hasMachines
+      ? scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx))
       : undefined;
+  const index = scans ? buildConnectionIndex(ws.connections, scans) : undefined;
+  const machineIndex = scans && index ? buildMachineIndex(ws.connections, scans, index) : undefined;
   const diagnostics = sortDiagnostics([
     ...ws.diagnostics,
     ...anchorDiagnostics(statuses, opts.strict),
     ...(index?.diagnostics ?? []),
+    ...(machineIndex?.diagnostics ?? []),
   ]);
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   if (opts.json) {
@@ -57,11 +63,16 @@ export function check(ctx: Context, opts: { strict?: boolean; json?: boolean } =
     const nodes = ws.flows.reduce((n, f) => n + f.nodes.length, 0);
     ctx.io.out(
       `${ws.flows.length} flows, ${nodes} nodes: ${errors} errors, ` +
-        `${diagnostics.length - errors} warnings (${count('stale')} stale, ${count('unstamped')} unstamped)`,
+        `${diagnostics.length - errors} warnings (${count('stale')} stale, ${count('unstamped')} unstamped)` +
+        (hasMachines && machineIndex
+          ? unknownSources(machineSummaries(machineIndex).reduce((n, m) => n + m.unknown, 0))
+          : ''),
     );
   }
   return errors > 0 ? 1 : 0;
 }
+
+const unknownSources = (n: number) => `, ${n} unknown source state${n === 1 ? '' : 's'}`;
 
 /** The anchor an agent should write for a symbol; `sig` only when the name is overloaded. */
 function anchorFor(file: string, sym: SymbolInfo, all: SymbolInfo[]): Anchor {
@@ -340,6 +351,83 @@ export function sites(
         `(${r.confirmed} confirmed), ${r.unpaired} unpaired` +
         (r.missingReceive > 0 ? `, ${r.missingReceive} without receive site` : '') +
         (r.forwarding > 0 ? `, ${r.forwarding} forwarding` : ''),
+    );
+  }
+  return code;
+}
+
+const VIA_WORDS: [Via, string][] = [
+  ['case', 'from a case'],
+  ['test', 'from a test'],
+  ['scope', 'from a scope'],
+  ['caller', 'from a caller'],
+  ['table', 'from a table'],
+  ['none', 'unknown'],
+];
+
+function transitionLine(m: MachineView, t: Transition): string {
+  const short = (s: string) => (s !== '*' && s.startsWith(m.prefix) ? s.slice(m.prefix.length) : s);
+  const label = t.label !== undefined ? `${t.label} ` : '';
+  let line = `${t.site.file}:${t.site.line + 1}: ${m.id} ${label}${short(t.from)} → ${short(t.to)}`;
+  if (t.event !== undefined) line += ` on ${t.event}`;
+  else if (t.site.symbol !== undefined) line += ` in ${t.site.symbol}`;
+  if (t.guard !== undefined) line += ` if ${t.guard}`;
+  const first = t.triggers[0];
+  if (first) {
+    const r = first.reactors[0];
+    const more = t.triggers.length > 1 ? ` (+${t.triggers.length - 1} more)` : '';
+    line += ` · sets off ${first.send.rule} → ${r ? spot(r) : 'unpaired'}${more}`;
+  }
+  return line;
+}
+
+/**
+ * Lists every state transition with its source state and what it sets off, then one summary
+ * line per machine. Diagnostics of the machines file and the machine index go to stderr first;
+ * errors in either make the exit code 1.
+ */
+export function states(
+  ctx: Context,
+  opts: { machine?: string; unknown?: boolean; json?: boolean } = {},
+): number {
+  const ws = readWorkspace(ctx.root);
+  const known = ws.connections.machines ?? [];
+  const fileDiagnostics = sortDiagnostics(ws.diagnostics.filter((d) => d.file === MACHINES_FILE));
+  const fileErrors = fileDiagnostics.filter((d) => d.severity === 'error');
+  for (const d of fileErrors) ctx.io.err(formatDiagnostic(d, ctx.root));
+  if (opts.machine !== undefined && !known.some((m) => m.id === opts.machine)) {
+    ctx.io.err(
+      `error: unknown machine "${opts.machine}"; known: ${known.map((m) => m.id).join(', ')}`,
+    );
+    return 1;
+  }
+  const scans = scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx));
+  const index = buildConnectionIndex(ws.connections, scans);
+  const mi = buildMachineIndex(ws.connections, scans, index);
+  // Like rule errors for `sites`: a record an error drops or breaks finds the wrong thing.
+  const errors = fileErrors.length + mi.diagnostics.filter((d) => d.severity === 'error').length;
+  const code = errors > 0 ? 1 : 0;
+  const wanted = (id: string) => opts.machine === undefined || id === opts.machine;
+  const machines = mi.machines.filter((m) => wanted(m.id));
+  const summaries = machineSummaries(mi).filter((s) => wanted(s.machine));
+  if (opts.json) {
+    const view = opts.unknown
+      ? machines.map((m) => ({ ...m, transitions: m.transitions.filter((t) => t.from === '*') }))
+      : machines;
+    const diagnostics = sortDiagnostics([...fileDiagnostics, ...mi.diagnostics]);
+    ctx.io.out(JSON.stringify({ machines: view, diagnostics }, null, 2));
+    return code;
+  }
+  for (const d of mi.diagnostics) ctx.io.err(formatDiagnostic(d, ctx.root));
+  for (const m of machines)
+    for (const t of m.transitions)
+      if (!opts.unknown || t.from === '*') ctx.io.out(transitionLine(m, t));
+  for (const s of summaries) {
+    const via = VIA_WORDS.filter(([v]) => s.via[v] > 0).map(([v, w]) => `${s.via[v]} ${w}`);
+    ctx.io.out(
+      `${s.machine}: ${s.states} states, ${s.transitions} transitions` +
+        (via.length ? ` (${via.join(', ')})` : '') +
+        (s.setsOff > 0 ? `, ${s.setsOff} sets off` : ''),
     );
   }
   return code;

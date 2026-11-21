@@ -1,6 +1,7 @@
 import picomatch from 'picomatch';
 import { z } from 'zod';
 import type { Diagnostic, Located } from './parse.js';
+import type { MachineRecord, ScopeRecord } from './machines.js';
 import { Anchor, Id } from './schema.js';
 
 export const CONNECTIONS_FILE = '.flowbook/connections.jsonl';
@@ -15,28 +16,34 @@ const KeyMember = z
 const Keys = Name.optional().describe('Regular expression the derived key must match entirely');
 const Files = z.array(z.string().min(1)).optional().describe('Globs limiting where it applies');
 
+export const CallMatcher = z
+  .object({
+    call: Name,
+    key: Position.optional(),
+    handler: Position.optional(),
+    keyMember: KeyMember,
+    keys: Keys,
+    files: Files,
+  })
+  .strict();
+export type CallMatcher = z.infer<typeof CallMatcher>;
+
+export const AssignMatcher = z
+  .object({
+    assign: Name,
+    as: z.enum(['key', 'handler']),
+    keyMember: KeyMember,
+    keys: Keys,
+    files: Files,
+  })
+  .strict();
+export type AssignMatcher = z.infer<typeof AssignMatcher>;
+
 export const Matcher = z.union([
-  z
-    .object({
-      call: Name,
-      key: Position.optional(),
-      handler: Position.optional(),
-      keyMember: KeyMember,
-      keys: Keys,
-      files: Files,
-    })
-    .strict(),
+  CallMatcher,
   z.object({ case: Name, files: Files }).strict(),
   z.object({ test: Name, files: Files }).strict(),
-  z
-    .object({
-      assign: Name,
-      as: z.enum(['key', 'handler']),
-      keyMember: KeyMember,
-      keys: Keys,
-      files: Files,
-    })
-    .strict(),
+  AssignMatcher,
   z.object({ invoke: Name, files: Files }).strict(),
 ]);
 export type Matcher = z.infer<typeof Matcher>;
@@ -81,6 +88,9 @@ export const ConnectionsFileRecord = z.discriminatedUnion('kind', [RuleRecord, C
 export interface Connections {
   rules: Located<RuleRecord>[];
   connections: Located<ConnectionRecord>[];
+  /** Present when `.flowbook/machines.jsonl` was loaded. */
+  machines?: Located<MachineRecord>[];
+  scopes?: Located<ScopeRecord>[];
 }
 
 /** Compiles a matcher name; it must match the whole name. Throws on an invalid expression. */

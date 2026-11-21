@@ -1,0 +1,7 @@
+{"kind":"machine","id":"cmsm","title":"CM state machine","states":"PF_CMSM_STATE_.*","events":"PNET_EVENT_.*","set":[{"call":"pf_cmsm_set_state","key":2}],"files":["src/src/device/pf_cmsm.c"],"context":"p-net main thread"}
+{"kind":"machine","id":"cmdev","title":"CM device","states":"PF_CMDEV_STATE_.*","events":"PNET_EVENT_.*","set":[{"call":"pf_cmdev_set_state","key":3}],"files":["src/src/device/pf_cmdev.c"],"context":"p-net main thread"}
+{"kind":"machine","id":"cmpbe","title":"CM parameter begin-end","states":"PF_CMPBE_STATE_.*","events":"PNET_EVENT_.*","set":[{"call":"pf_cmpbe_set_state","key":2}],"files":["src/src/device/pf_cmpbe.c"],"context":"p-net main thread"}
+{"kind":"machine","id":"cmio","title":"CM input/output","states":"PF_CMIO_STATE_.*","events":"PNET_EVENT_.*","set":[{"call":"pf_cmio_set_state","key":2}],"files":["src/src/device/pf_cmio.c"],"context":"p-net main thread"}
+{"kind":"machine","id":"ppm","title":"Provider protocol machine","states":"PF_PPM_STATE_.*","set":[{"call":"pf_ppm_set_state","key":2}],"files":["src/src/common/pf_ppm.c"]}
+{"kind":"machine","id":"cpm","title":"Consumer protocol machine","states":"PF_CPM_STATE_.*","set":[{"call":"pf_cpm_set_state","key":2}],"files":["src/src/common/pf_cpm*.c","src/src/drivers/**"]}
+{"kind":"scope","id":"cmdev-connect","machine":"cmdev","state":"PF_CMDEV_STATE_POWER_ON","in":[{"file":"src/src/device/pf_cmdev.c","symbol":"pf_cmdev_rm_connect_ind"},{"file":"src/src/device/pf_cmdev.c","symbol":"pf_cmdev_cm_connect_rsp_neg"}]}

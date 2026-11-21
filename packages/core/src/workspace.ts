@@ -1,5 +1,6 @@
 import { anchorKey } from './anchor.js';
 import { validateConnections, type Connections } from './connections.js';
+import { parseMachines, validateMachines } from './machines.js';
 import {
   parseConfig,
   parseConnections,
@@ -39,6 +40,7 @@ export function loadWorkspace(
   config: SourceFile | undefined,
   flowFiles: SourceFile[],
   connectionsFile?: SourceFile,
+  machinesFile?: SourceFile,
 ): Workspace {
   const diagnostics: Diagnostic[] = [];
   const cfg = config ? parseConfig(config.text, config.path, diagnostics) : { groups: [] };
@@ -46,6 +48,12 @@ export function loadWorkspace(
     ? parseConnections(connectionsFile.text, connectionsFile.path, diagnostics)
     : { rules: [], connections: [] };
   if (connectionsFile) diagnostics.push(...validateConnections(connections, connectionsFile.path));
+  if (machinesFile) {
+    const m = parseMachines(machinesFile.text, machinesFile.path, diagnostics);
+    connections.machines = m.machines;
+    connections.scopes = m.scopes;
+    diagnostics.push(...validateMachines(m, machinesFile.path));
+  }
   const flows: Flow[] = [];
   for (const f of flowFiles) {
     const flow = parseFlow(f.text, f.path, diagnostics);

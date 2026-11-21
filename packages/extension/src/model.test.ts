@@ -52,6 +52,8 @@ describe('loadRoot', () => {
     const scanned = loadRoot(dir, resolver, undefined, scans);
     expect(scanned.scans).toBe(scans);
     expect(scanned.connectionIndex.pairings.length).toBeGreaterThan(0);
+    expect(unscanned.machineIndex.machines).toEqual([]);
+    expect(scanned.machineIndex.machines.map((m) => m.id)).toEqual(['link', 'dl', 'cm', 'dev']);
     expect(ghost(scanned)).toMatchObject([
       { severity: 'error', file: '.flowbook/connections.jsonl', id: 'ghost' },
     ]);
@@ -219,6 +221,7 @@ describe('paths', () => {
     expect(rootOfFlowbookFile('/r/x/.flowbook/config.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/flows/a.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/connections.jsonl')).toBe('/r/x');
+    expect(rootOfFlowbookFile('/r/x/.flowbook/machines.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/other.jsonl')).toBeUndefined();
   });
 
