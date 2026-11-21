@@ -1,6 +1,7 @@
 import picomatch from 'picomatch';
 import { z } from 'zod';
 import type { Diagnostic, Located } from './parse.js';
+import type { MachineRecord, ScopeRecord } from './machines.js';
 import { Anchor, Id } from './schema.js';
 
 export const CONNECTIONS_FILE = '.flowbook/connections.jsonl';
@@ -81,6 +82,9 @@ export const ConnectionsFileRecord = z.discriminatedUnion('kind', [RuleRecord, C
 export interface Connections {
   rules: Located<RuleRecord>[];
   connections: Located<ConnectionRecord>[];
+  /** Present when `.flowbook/machines.jsonl` was loaded. */
+  machines?: Located<MachineRecord>[];
+  scopes?: Located<ScopeRecord>[];
 }
 
 /** Compiles a matcher name; it must match the whole name. Throws on an invalid expression. */

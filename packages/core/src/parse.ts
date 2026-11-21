@@ -36,7 +36,7 @@ export interface Config {
   groups: Located<GroupRecord>[];
 }
 
-function parseLines<S extends z.ZodType>(
+export function parseLines<S extends z.ZodType>(
   text: string,
   file: string,
   schema: S,
