@@ -190,6 +190,45 @@ F1–F4 were built by design 1b (see **Done**).
   parameters; overloads give duplicate warnings; a `keys`-filtered wrapper site gives no warning; a forwarding
   site with reactors (i-link `iolink_ode.c:447`) prints only its reactors in `sites`, not "forwards".
 
+## Track G — State machine follow-ups (`packages/resolver`, `packages/cli`, `packages/extension`, `packages/webview`)
+
+Found on 2026-11-21 while building design 2 on `examples/p-net` and `examples/i-link` and in its
+final review. Design: `docs/superpowers/specs/2026-11-21-state-machines-design.md`.
+
+### G1. State diagram view
+
+- The spec's "Later" section: a webview `machine` view (states as nodes, transitions as edges
+  labelled by event, ELK layout, side panel with snippet, guard and triggers), a `Flowbook: Show
+State Machine` command, a `HostMessage` `{type:"machine"}` change in webview and extension
+  together. Build once the CLI and lenses have been used on a real stack.
+
+### G2. Triggers count sends in sibling branches
+
+- A transition's triggers are every send in its region (the `case` block or function), so a send
+  in another `if` branch is listed too (p-net `cmio`: 3 "sets off", 1 real). Narrow the region to
+  the innermost statement block that contains the set site, or skip sibling branches.
+
+### G3. Small items
+
+- `[IDX] = {…}` (index-designated) table rows are not read.
+- An `else` branch of a state test has no source (p-net `pf_cmdev.c:4819`); needs negation.
+- "From key matches no table" sees only tables with at least one kept row (false error when every
+  row of a table was filtered).
+- Callers are matched by leaf name (`A::go` and `B::go` in one C++ file are conflated); two scopes
+  on one function take the first without a warning.
+- The CLI `transitionLine` and the extension `transitionLensTitle` are near copies; move one
+  formatter into the resolver.
+- A dirty document is parsed twice per lens refresh (`viewOf` in both lens providers); cache by
+  uri, version and reload generation.
+- Trigger lookup is linear over all pairings per transition; index pairings by file.
+- A state case nested in another state case of the same machine counts its calls for both states
+  (callee becomes `*`); an inner `if` mixing states with other operands stops an outer clean
+  state test from being used.
+- A `set` matcher with `keys` filters the raw `c ? A : B` text before the two-branch split.
+- Absolute cold-scan time with machines on a quiet machine (only relative cost measured).
+- `references/schema.md` scope example names `pf_cmdev_init`; the real p-net record is
+  `cmdev-connect`.
+
 ## Decisions already made (don't re-litigate)
 
 Agents write, humans read (UI read-only + "copy agent prompt"); one JSONL file per flow;
@@ -221,3 +260,7 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
 - F1–F4 rule format follow-ups (design 1b,
   `docs/superpowers/specs/2026-11-21-rule-format-followups-design.md`): `keyMember`, `keys`,
   forwarding sites, dispatcher connections.
+- State machines (design 2, `docs/superpowers/specs/2026-11-21-state-machines-design.md`):
+  `machine`/`scope` records in `.flowbook/machines.jsonl`, transitions found in the scan (setter in
+  a case, state test, per-state functions, tables), `flowbook states`, machine checks in `check`,
+  transition lenses, machines for both examples. Follow-ups in Track G.
