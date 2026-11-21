@@ -161,6 +161,90 @@ describe('scan', () => {
     expect(found.map((s) => s.key)).toEqual(['EVT_A', 'EVT_B', 'EVT_C']);
   });
 
+  it('keyMember takes the last member', () => {
+    const r = rule({ send: [{ call: 'os_mbox_post|post', key: 1, keyMember: true }] });
+    const text = [
+      'void f(struct port *port, struct master *master, struct x *p) {',
+      '  os_mbox_post (port->master->mbox_avail, j, 0);',
+      '  os_mbox_post (master->mbox_avail, j, 0);',
+      '  post (&boxes[i].mbox);',
+      '  post ((void *)p->mbox);',
+      '  post (get_box (port));',
+      '}',
+    ].join('\n');
+    expect(scan('x.c', text, [r]).map((s) => s.key)).toEqual([
+      'mbox_avail',
+      'mbox_avail',
+      'mbox',
+      'mbox',
+      'get_box(port)',
+    ]);
+  });
+
+  it('keyMember on assign', () => {
+    const r = rule({
+      send: [{ call: 'post' }],
+      receive: [{ assign: 'box', as: 'key', keyMember: true }],
+    });
+    const [s] = scan('x.c', 'void f(void) { job->box = port->master->mbox; }', [r]);
+    expect(s?.key).toBe('mbox');
+  });
+
+  it('keeps the key text without keyMember', () => {
+    const r = rule({ send: [{ call: 'post', key: 1 }] });
+    const [s] = scan('x.c', 'void f(void) { post(&boxes[i].mbox); }', [r]);
+    expect(s?.key).toBe('&boxes[i].mbox');
+  });
+
+  it('keys filters sites', () => {
+    const r = rule({ send: [{ assign: 'type', as: 'key', keys: 'JOB_EXIT' }] });
+    const found = scan('x.c', 'void f(void) { job->type = JOB_NONE; job->type = JOB_EXIT; }', [r]);
+    expect(found.map((s) => s.key)).toEqual(['JOB_EXIT']);
+    const call = rule({ send: [{ call: 'post', key: 1, keys: '.*' }] });
+    expect(scan('x.c', 'void f(void) { post (); }', [call])).toEqual([]);
+  });
+
+  it('skips a matcher whose keys expression is invalid', () => {
+    const r = rule({ send: [{ call: 'post', key: 1, keys: '(' }, { call: 'other' }] });
+    const found = scan('x.c', 'void f(void) { post(A); other(); }', [r]);
+    expect(found.map((s) => s.key ?? '-')).toEqual(['-']);
+  });
+
+  it('marks forwarding sites', () => {
+    const post = rule({ send: [{ call: 'post', key: 1, handler: 2 }] });
+    const [wrap] = scan('x.c', 'void wrap (int a, int type, cb_t cb) { post (type, cb); }', [post]);
+    expect(wrap?.forwards).toEqual({ param: 'type', position: 2 });
+
+    const tadd = rule({ send: [{ call: 'tadd', handler: 1 }] });
+    const [w2] = scan('x.c', 'void w2 (cb_t cb) { tadd (cb); }', [tadd]);
+    expect(w2?.forwards).toEqual({ param: 'cb', position: 1 });
+
+    const assign = rule({ send: [{ assign: 'type', as: 'key' }] });
+    const [h] = scan('x.c', 'void h (int type) { job->type = type; }', [assign]);
+    expect(h?.forwards).toEqual({ param: 'type', position: 1 });
+
+    const [constant] = scan('x.c', 'void wrap (int type, cb_t cb) { post (JOB_A, cb); }', [post]);
+    expect(constant).toBeDefined();
+    expect(constant?.forwards).toBeUndefined();
+
+    const recv = rule({ send: [{ call: 'post', key: 1 }], receive: [{ call: 'take', key: 1 }] });
+    const [r] = scan('x.c', 'void g (int type) { take (type); }', [recv]);
+    expect(r?.role).toBe('receive');
+    expect(r?.forwards).toBeUndefined();
+
+    const [v] = scan('x.c', 'void v (void) { post (x, y); }', [post]);
+    expect(v).toBeDefined();
+    expect(v?.forwards).toBeUndefined();
+  });
+
+  it('reads parameters through pointer, reference and function-pointer declarators', () => {
+    const r = rule({ send: [{ call: 'post', handler: 1 }] });
+    const c = 'static int *mk (struct s *box, void (*cb)(int)) { post (cb); return 0; }';
+    expect(scan('x.c', c, [r])[0]?.forwards).toEqual({ param: 'cb', position: 2 });
+    const cpp = 'int &S::mk (Box &box, int n) { post (box); return n; }';
+    expect(scan('x.cpp', cpp, [r])[0]?.forwards).toEqual({ param: 'box', position: 1 });
+  });
+
   it('returns no sites without rules', () => {
     expect(scan('src/rt/jobs.c', read('src/rt/jobs.c'), [])).toEqual([]);
   });
