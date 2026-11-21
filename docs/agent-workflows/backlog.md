@@ -184,35 +184,7 @@ Found on 2026-11-15 by writing rules for two real protocol stacks (`examples/i-l
 design first (update `core/src/connections.ts`, `schema.md`, the fixture and both examples
 together). F7 items are small and independent.
 
-### F1. Keys from a struct member, for mailbox handles
-
-- **Problem:** the same mailbox is written `master->mbox_avail` in one function and
-  `port->master->mbox_avail` in another, so keys compared as text never match, and anchored
-  connections pair per function, which is too coarse when one function uses three mailboxes.
-  8 of i-link's 13 mailbox sites stay unpaired.
-- **Approach:** a matcher option that takes the last member name of the argument as the key
-  (`mbox`, `mbox_avail`), the same idea that already works for callback slots.
-
-### F2. Wrapper functions
-
-- **Problem:** when a key or handler is a parameter of the enclosing function, extra send
-  matchers on the wrapper fix the pairing, but the call inside the wrapper stays an unpaired site
-  with a "no reactor found" lens.
-- **Approach:** drop a site whose key or handler is a parameter of its enclosing function, or
-  derive the matcher for that function automatically.
-
-### F3. Filter on key values
-
-- **Problem:** `{"assign":"type","as":"key"}` is needed for jobs posted without a helper, but it
-  also matches resets such as `job->type = JOB_NONE`, which become unpaired sends.
-- **Approach:** an optional key regular expression on a matcher.
-
-### F4. Confirming a uniform dispatcher in one record
-
-- **Problem:** i-link needed 44 keyed connections and p-net 10, each verified by reading the
-  same `switch`. That is boilerplate and tempts an agent to generate them unread.
-- **Approach:** a keyed connection whose `key` is a regular expression, or a confirmation scoped
-  to a receive function.
+F1–F4 were built by design 1b (see **Done**).
 
 ### F5. Excluding one receive site, and run-time flag values
 
@@ -241,6 +213,10 @@ together). F7 items are small and independent.
   scanned.
 - Measure the scan inside VS Code on a root with several thousand files (only the CLI and
   in-process timings were measured).
+- Forwarding (1b): the `check` hint names only the key position when a wrapper also forwards its
+  handler; C++ hints use the qualified name; a site inside a lambda uses the enclosing function's
+  parameters; overloads give duplicate warnings; a `keys`-filtered wrapper site gives no warning; a forwarding
+  site with reactors (i-link `iolink_ode.c:447`) prints only its reactors in `sites`, not "forwards".
 
 ## Decisions already made (don't re-litigate)
 
@@ -258,3 +234,6 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
   `docs/superpowers/specs/2026-11-15-connection-points-design.md`): rules and connections in
   `.flowbook/connections.jsonl`, `flowbook sites`, connection checks in `flowbook check`, editor
   lenses and `Go to Reactor` / `Go to Sender`, examples `examples/i-link` and `examples/p-net`.
+- F1–F4 rule format follow-ups (design 1b,
+  `docs/superpowers/specs/2026-11-21-rule-format-followups-design.md`): `keyMember`, `keys`,
+  forwarding sites, dispatcher connections.

@@ -23,14 +23,14 @@ the pairings, `flowbook check` keeps them honest.**
 Each design goes through brainstorm → design doc (`docs/superpowers/specs/`) → plan
 (`docs/superpowers/plans/`) → subagent-driven build → final review.
 
-| #   | Design                                                                                                       | Status                               |
-| --- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
-| 1   | Connection points and the editor jump (`Go to Reactor` / `Go to Sender`, `flowbook sites`)                   | Done 2026-11-15 (`bdd6dfc..6f733c7`) |
-| 1b  | Rule format follow-ups: mailbox keys, wrappers, key filters, bulk confirmation (backlog F1–F5)               | Next                                 |
-| 2   | State machines: states, transitions and what each transition triggers, found by rules and confirmed by agent | Planned                              |
-| 3   | Walkthrough mode and "you are here": step through a sequence in the editor; minimap of the stack             | Planned                              |
-| 4   | MCP server: structured retrieval for agents (flows, sites, pairings, state machines)                         | Planned                              |
-| 5   | Spec references: link flows, states and sites to clauses of a machine-readable specification                 | Planned                              |
+| #   | Design                                                                                                       | Status                                     |
+| --- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| 1   | Connection points and the editor jump (`Go to Reactor` / `Go to Sender`, `flowbook sites`)                   | Done 2026-11-15 (`bdd6dfc..6f733c7`)       |
+| 1b  | Rule format follow-ups: mailbox keys, wrappers, key filters, bulk confirmation (backlog F1–F5)               | Done 2026-11-21 (`design-1b-rule-format`)  |
+| 2   | State machines: states, transitions and what each transition triggers, found by rules and confirmed by agent | Designed and planned 2026-11-21, not built |
+| 3   | Walkthrough mode and "you are here": step through a sequence in the editor; minimap of the stack             | Planned                                    |
+| 4   | MCP server: structured retrieval for agents (flows, sites, pairings, state machines)                         | Planned                                    |
+| 5   | Spec references: link flows, states and sites to clauses of a machine-readable specification                 | Planned                                    |
 
 Why 1b before 2: state machines reuse the same rule matchers, and mailboxes pair poorly today
 (8 of 13 mailbox sites unpaired in `examples/i-link`).
