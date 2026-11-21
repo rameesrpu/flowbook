@@ -1,10 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Resolver, type ReadSource } from '@flowbook/resolver';
+import { Resolver, scanRoot, type ReadSource } from '@flowbook/resolver';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   buildPayload,
+  flowSections,
   definitionDiff,
   languageOf,
   lensTargets,
@@ -13,7 +15,9 @@ import {
   nameRange,
   problemCount,
   rootOfFlowbookFile,
+  savedScanIsCurrent,
   snippetOf,
+  withScans,
   type RootState,
 } from './model.js';
 
@@ -26,6 +30,34 @@ let state: RootState;
 beforeAll(async () => {
   resolver = await Resolver.create();
   state = loadRoot(fixture, resolver);
+});
+
+describe('loadRoot', () => {
+  it('indexes connections from the given scans and reports their problems', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flowbook-model-'));
+    cpSync(fixture, dir, { recursive: true });
+    appendFileSync(
+      join(dir, '.flowbook/connections.jsonl'),
+      '{"kind":"connection","id":"ghost","rule":"job","key":"JOB_GHOST","title":"Ghost"}\n',
+    );
+    const ghost = (s: RootState) => s.diagnostics.filter((d) => d.message.includes('JOB_GHOST'));
+
+    // Not scanned yet: an empty index, and no connection checks that would all fail.
+    const unscanned = loadRoot(dir, resolver);
+    expect(unscanned.scans.size).toBe(0);
+    expect(unscanned.connectionIndex.pairings).toEqual([]);
+    expect(ghost(unscanned)).toEqual([]);
+
+    const scans = scanRoot(dir, unscanned.ws.connections, resolver);
+    const scanned = loadRoot(dir, resolver, undefined, scans);
+    expect(scanned.scans).toBe(scans);
+    expect(scanned.connectionIndex.pairings.length).toBeGreaterThan(0);
+    expect(ghost(scanned)).toMatchObject([
+      { severity: 'error', file: '.flowbook/connections.jsonl', id: 'ghost' },
+    ]);
+    // Attaching the scans to the unscanned state gives the same result.
+    expect(withScans(unscanned, scans)).toEqual(scanned);
+  });
 });
 
 describe('buildPayload', () => {
@@ -186,11 +218,46 @@ describe('paths', () => {
   it('finds the root of flowbook files', () => {
     expect(rootOfFlowbookFile('/r/x/.flowbook/config.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/flows/a.jsonl')).toBe('/r/x');
+    expect(rootOfFlowbookFile('/r/x/.flowbook/connections.jsonl')).toBe('/r/x');
     expect(rootOfFlowbookFile('/r/x/.flowbook/other.jsonl')).toBeUndefined();
   });
 
   it('locates a file in the innermost root', () => {
     expect(locate(['/r', '/r/sub'], '/r/sub/src/a.c')).toEqual({ root: '/r/sub', rel: 'src/a.c' });
     expect(locate(['/r'], '/rx/a.c')).toBeUndefined();
+  });
+});
+
+describe('flowSections', () => {
+  const flow = (id: string, tags?: string[]) =>
+    ({ meta: { kind: 'flow', id, title: id, tags }, nodes: [], steps: [], blocks: [] }) as never;
+
+  it('lists each flow once, under its first tag, untagged last', () => {
+    const sections = flowSections([
+      flow('b', ['net', 'io']),
+      flow('a', ['io', 'net']),
+      flow('c'),
+      flow('d', ['net']),
+    ]);
+    expect(
+      sections.map((s) => [s.tag, s.flows.map((f) => (f as { meta: { id: string } }).meta.id)]),
+    ).toEqual([
+      ['io', ['a']],
+      ['net', ['b', 'd']],
+      [undefined, ['c']],
+    ]);
+  });
+});
+
+describe('savedScanIsCurrent (M3)', () => {
+  it('trusts the saved scan for a file not saved since the scan began', () => {
+    expect(savedScanIsCurrent(undefined, 4)).toBe(true);
+    expect(savedScanIsCurrent(3, 4)).toBe(true);
+    expect(savedScanIsCurrent(4, 4)).toBe(true);
+  });
+
+  it('distrusts it for a file saved after the scan began, or with no finished scan', () => {
+    expect(savedScanIsCurrent(5, 4)).toBe(false);
+    expect(savedScanIsCurrent(1, undefined)).toBe(false);
   });
 });

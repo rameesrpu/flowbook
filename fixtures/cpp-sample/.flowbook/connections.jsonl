@@ -1,0 +1,9 @@
+{"kind":"rule","id":"job","title":"Job queue","type":"queue","context":"rt main task","send":[{"call":"job_post","key":2,"handler":3},{"call":"job_post_typed","key":1,"handler":2},{"assign":"type","as":"key","keys":"JOB_TICK"}],"receive":[{"case":"JOB_.*"}]}
+{"kind":"rule","id":"timer","title":"Timer","type":"timer","send":[{"call":"timer_add","handler":2}]}
+{"kind":"rule","id":"event","title":"Event flag","type":"event","send":[{"call":"event_set","key":1}],"receive":[{"test":"EVT_.*"}]}
+{"kind":"rule","id":"app-cb","title":"Application callback","type":"callback","send":[{"invoke":".*_cb"}],"receive":[{"assign":".*_cb","as":"handler"}]}
+{"kind":"rule","id":"mbox","title":"Mailbox","type":"queue","send":[{"call":"mbox_post","key":1,"keyMember":true}],"receive":[{"call":"mbox_fetch","key":1,"keyMember":true}]}
+{"kind":"connection","id":"read-cnf","rule":"job","key":"JOB_READ_CNF","title":"Read confirmation"}
+{"kind":"connection","id":"rt-events","rule":"event","title":"Main task events","receive":[{"file":"src/rt/jobs.c","symbol":"rt_main"}]}
+{"kind":"connection","id":"main-box","rule":"mbox","title":"Main mailbox","send":[{"file":"src/rt/jobs.c","symbol":"job_post"}],"receive":[{"file":"src/rt/jobs.c","symbol":"rt_main"}]}
+{"kind":"connection","id":"rt-box","rule":"mbox","key":"box","title":"Runtime mailbox"}

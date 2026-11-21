@@ -1,5 +1,13 @@
 import { anchorKey } from './anchor.js';
-import { parseConfig, parseFlow, type Config, type Diagnostic, type Flow } from './parse.js';
+import { validateConnections, type Connections } from './connections.js';
+import {
+  parseConfig,
+  parseConnections,
+  parseFlow,
+  type Config,
+  type Diagnostic,
+  type Flow,
+} from './parse.js';
 import { validateFlow, validateWorkspace } from './validate.js';
 
 export const FLOWBOOK_DIR = '.flowbook';
@@ -19,6 +27,7 @@ export interface Usage {
 
 export interface Workspace {
   config: Config;
+  connections: Connections;
   flows: Flow[];
   /** anchorKey → every node (across flows) anchored at that symbol. */
   usages: Map<string, Usage[]>;
@@ -26,9 +35,17 @@ export interface Workspace {
 }
 
 /** Parses and validates a whole `.flowbook` directory given its file contents. */
-export function loadWorkspace(config: SourceFile | undefined, flowFiles: SourceFile[]): Workspace {
+export function loadWorkspace(
+  config: SourceFile | undefined,
+  flowFiles: SourceFile[],
+  connectionsFile?: SourceFile,
+): Workspace {
   const diagnostics: Diagnostic[] = [];
   const cfg = config ? parseConfig(config.text, config.path, diagnostics) : { groups: [] };
+  const connections: Connections = connectionsFile
+    ? parseConnections(connectionsFile.text, connectionsFile.path, diagnostics)
+    : { rules: [], connections: [] };
+  if (connectionsFile) diagnostics.push(...validateConnections(connections, connectionsFile.path));
   const flows: Flow[] = [];
   for (const f of flowFiles) {
     const flow = parseFlow(f.text, f.path, diagnostics);
@@ -46,5 +63,5 @@ export function loadWorkspace(config: SourceFile | undefined, flowFiles: SourceF
       usages.set(key, [...(usages.get(key) ?? []), { flow: flow.meta.id, node: n.id }]);
     }
   }
-  return { config: cfg, flows, usages, diagnostics };
+  return { config: cfg, connections, flows, usages, diagnostics };
 }

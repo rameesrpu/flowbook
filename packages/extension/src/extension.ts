@@ -1,15 +1,17 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { UsageLink } from '@flowbook/core';
-import { Resolver } from '@flowbook/resolver';
+import { Resolver, type Target } from '@flowbook/resolver';
 import * as vscode from 'vscode';
 import { C_CPP_SELECTOR, FlowLenses, showUsages } from './codelens.js';
+import { ConnectionLenses, goTo } from './connections-lens.js';
 import { Flowbook } from './host.js';
 import { hasShim, installCli, installSkill, SKILL_DIR, type CliInstall } from './install.js';
 import { Panels } from './panel.js';
 import { FlowsTree } from './tree.js';
 
 const SOURCE_GLOB = '**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,inl,ipp}';
+/** Watched for reloads; covers config.jsonl, connections.jsonl and flows/*.jsonl. */
 const FLOWBOOK_GLOB = '**/.flowbook/**/*.jsonl';
 
 /** What `activate` returns; used by the integration tests. */
@@ -50,9 +52,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('flowbook.flows', tree),
     vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new FlowLenses(flowbook)),
+    vscode.languages.registerCodeLensProvider(C_CPP_SELECTOR, new ConnectionLenses(flowbook)),
+    vscode.commands.registerCommand(
+      'flowbook.goToReactor',
+      (uri?: vscode.Uri, line?: number, targets?: Target[], prompt?: string) =>
+        goTo(flowbook, 'reactor', uri, line, targets, prompt),
+    ),
+    vscode.commands.registerCommand(
+      'flowbook.goToSender',
+      (uri?: vscode.Uri, line?: number, targets?: Target[], prompt?: string) =>
+        goTo(flowbook, 'sender', uri, line, targets, prompt),
+    ),
     vscode.commands.registerCommand('flowbook.refresh', () => flowbook.reload()),
     vscode.commands.registerCommand('flowbook.check', async () => {
       await flowbook.reload();
+      await flowbook.scanned();
       const all = [...flowbook.roots.values()];
       const diags = all.flatMap((s) => s.diagnostics);
       const errors = diags.filter((d) => d.severity === 'error').length;
@@ -73,9 +87,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
         const items = [...flowbook.roots.values()].flatMap((state) =>
           state.ws.flows.map((f) => ({
             label: f.meta.title,
-            description: f.meta.id,
+            description: [f.meta.id, ...(f.meta.tags ?? []).map((t) => `#${t}`)].join('  '),
             detail:
-              flowbook.roots.size > 1 ? vscode.workspace.asRelativePath(state.root) : undefined,
+              [
+                flowbook.roots.size > 1 ? vscode.workspace.asRelativePath(state.root) : '',
+                f.meta.summary?.split('\n')[0] ?? '',
+              ]
+                .filter(Boolean)
+                .join(' — ') || undefined,
             root: state.root,
             id: f.meta.id,
           })),
@@ -84,7 +103,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
           void vscode.window.showInformationMessage('Flowbook: no flows found in this workspace.');
           return;
         }
-        const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Open flow' });
+        const pick = await vscode.window.showQuickPick(items, {
+          placeHolder: 'Open flow — search by title, id, #tag or summary',
+          matchOnDescription: true,
+          matchOnDetail: true,
+        });
         if (pick) open(pick.root, pick.id);
       },
     ),
@@ -124,7 +147,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Flowbo
     ),
   );
 
-  // Live reload: any flow file or C/C++ source saved, created or deleted.
+  // Live reload: any flow, config or connections file or C/C++ source saved, created or deleted.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const schedule = () => {
     if (timer) clearTimeout(timer);

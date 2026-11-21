@@ -15,11 +15,14 @@ import {
 } from '@flowbook/core';
 import {
   anchorDiagnostics,
+  buildConnectionIndex,
   checkAnchors,
   fileLister,
   readWorkspace,
   sourceReader,
   type AnchorStatus,
+  type ConnectionIndex,
+  type FileScan,
   type ReadSource,
   type Resolver,
   type SymbolInfo,
@@ -31,18 +34,60 @@ export interface RootState {
   root: string;
   ws: Workspace;
   statuses: AnchorStatus[];
-  /** Workspace diagnostics followed by anchor diagnostics. */
+  /** Connection scans of the root's source files, by root-relative path. */
+  scans: Map<string, FileScan>;
+  /** Pairings of `ws.connections` over `scans`. */
+  connectionIndex: ConnectionIndex;
+  /** Workspace diagnostics, then anchor diagnostics, then connection diagnostics. */
   diagnostics: Diagnostic[];
 }
 
+/**
+ * Loads a root. Without `scans` the root has not been scanned yet: the connection index is empty
+ * and its checks are skipped, since every one of them would fail against no sites.
+ */
 export function loadRoot(
   root: string,
   resolver: Resolver,
   read: ReadSource = sourceReader(root),
+  scans?: Map<string, FileScan>,
 ): RootState {
   const ws = readWorkspace(root);
   const statuses = checkAnchors(ws, read, resolver, fileLister(root));
-  return { root, ws, statuses, diagnostics: [...ws.diagnostics, ...anchorDiagnostics(statuses)] };
+  const state: RootState = {
+    root,
+    ws,
+    statuses,
+    scans: new Map(),
+    connectionIndex: buildConnectionIndex({ rules: [], connections: [] }, new Map()),
+    diagnostics: [...ws.diagnostics, ...anchorDiagnostics(statuses)],
+  };
+  return scans ? withScans(state, scans) : state;
+}
+
+/** A root loaded without scans, given `scans`: its connection index and diagnostics are added. */
+export function withScans(state: RootState, scans: Map<string, FileScan>): RootState {
+  const connectionIndex = buildConnectionIndex(state.ws.connections, scans);
+  return {
+    ...state,
+    scans,
+    connectionIndex,
+    diagnostics: [...state.diagnostics, ...connectionIndex.diagnostics],
+  };
+}
+
+/**
+ * Whether a root's finished scan still describes a file, so a clean document may use the root's
+ * connection index. `lastSave` (the file's latest save) and `scanStartedAt` (when the scan began)
+ * are values of one save counter; a file saved after the scan began, or a root with no finished
+ * scan, must be indexed from the document's text instead.
+ */
+export function savedScanIsCurrent(
+  lastSave: number | undefined,
+  scanStartedAt: number | undefined,
+): boolean {
+  if (lastSave === undefined) return true;
+  return scanStartedAt !== undefined && lastSave <= scanStartedAt;
 }
 
 export const findFlow = (state: RootState, flowId: string): Flow | undefined =>
@@ -64,6 +109,32 @@ function anchorInfo(s: AnchorStatus): AnchorInfo {
     return { state: s.state, line: s.symbol.nameLine, symbol: s.symbol.symbol, sig: s.symbol.sig };
   }
   return { state: s.state };
+}
+
+export interface FlowSection {
+  /** The section's tag; `undefined` for flows without tags. */
+  tag: string | undefined;
+  flows: Flow[];
+}
+
+/**
+ * Sections for the flows tree. A flow's first tag is its section, so each flow is listed exactly
+ * once; its other tags are only for search. Sections and flows sort by name, "Untagged" last.
+ */
+export function flowSections(flows: readonly Flow[]): FlowSection[] {
+  const byTag = new Map<string | undefined, Flow[]>();
+  for (const f of flows) {
+    const tag = f.meta.tags?.[0];
+    byTag.set(tag, [...(byTag.get(tag) ?? []), f]);
+  }
+  return [...byTag]
+    .map(([tag, list]) => ({
+      tag,
+      flows: list.sort((a, b) => a.meta.title.localeCompare(b.meta.title)),
+    }))
+    .sort((a, b) =>
+      a.tag === undefined ? 1 : b.tag === undefined ? -1 : a.tag.localeCompare(b.tag),
+    );
 }
 
 export function buildPayload(
@@ -223,10 +294,10 @@ export function lensTargets(
   return out;
 }
 
-/** Root directory for a `.flowbook/config.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
+/** Root directory for a `.flowbook/{config,connections}.jsonl` or `.flowbook/flows/<id>.jsonl` path. */
 export function rootOfFlowbookFile(path: string): string | undefined {
   const p = path.split('\\').join('/');
-  const m = /^(.*)\/\.flowbook\/(?:config\.jsonl|flows\/[^/]+\.jsonl)$/.exec(p);
+  const m = /^(.*)\/\.flowbook\/(?:config\.jsonl|connections\.jsonl|flows\/[^/]+\.jsonl)$/.exec(p);
   return m ? m[1] || '/' : undefined;
 }
 

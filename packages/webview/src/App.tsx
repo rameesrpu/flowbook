@@ -32,6 +32,8 @@ interface FlowViewState {
   view?: View;
   level?: Level;
   collapsed?: string[];
+  /** Sequence view zoom factor (1 = 100%). */
+  seqZoom?: number;
 }
 
 interface Crumb {
@@ -233,6 +235,15 @@ export function App({ host }: { host: Host }) {
     [collapsed, updateFlow],
   );
 
+  const openCode = useCallback(
+    (nodeId: string) => {
+      if (payload?.flow.nodes.find((n) => n.id === nodeId)?.anchor) {
+        host.post({ type: 'openCode', nodeId });
+      }
+    },
+    [host, payload],
+  );
+
   const navigate = useCallback(
     (target: string, focus?: string) => {
       if (!payload) return;
@@ -394,6 +405,7 @@ export function App({ host }: { host: Host }) {
                 selection={selection}
                 onToggle={onToggle}
                 onSelect={setSelection}
+                onOpenCode={openCode}
                 onDrill={(id) => navigate(id)}
               />
             ) : (
@@ -404,6 +416,9 @@ export function App({ host }: { host: Host }) {
                 selection={selection}
                 onToggle={onToggle}
                 onSelect={setSelection}
+                onOpenCode={openCode}
+                zoom={saved.seqZoom ?? 1}
+                onZoom={(seqZoom) => updateFlow({ seqZoom })}
               />
             )}
           </ErrorBoundary>

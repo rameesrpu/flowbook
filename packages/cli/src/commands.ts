@@ -1,13 +1,21 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve as resolvePath } from 'node:path';
-import type { Anchor } from '@flowbook/core';
+import { CONNECTIONS_FILE, type Anchor } from '@flowbook/core';
 import {
   anchorDiagnostics,
+  buildConnectionIndex,
   checkAnchors,
   fileLister,
   headCommitFor,
   readWorkspace,
+  ruleSummaries,
+  scanRoot,
   sourceReader,
+  type ConnectionIndex,
+  type OnSkip,
+  type Pairing,
+  type Reactor,
+  type Site,
   type Resolver,
   type SymbolInfo,
 } from '@flowbook/resolver';
@@ -19,12 +27,26 @@ export interface Context {
   io: Io;
 }
 
+/** Reports a file the connection scan left out, on stderr. */
+const skipped =
+  (ctx: Context): OnSkip =>
+  (path, reason) =>
+    ctx.io.err(`warning: skipped ${displayPath(ctx.root, path)}: ${reason}`);
+
 export function check(ctx: Context, opts: { strict?: boolean; json?: boolean } = {}): number {
   const ws = readWorkspace(ctx.root);
   const statuses = checkAnchors(ws, sourceReader(ctx.root), ctx.resolver, fileLister(ctx.root));
+  const index =
+    ws.connections.rules.length > 0
+      ? buildConnectionIndex(
+          ws.connections,
+          scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx)),
+        )
+      : undefined;
   const diagnostics = sortDiagnostics([
     ...ws.diagnostics,
     ...anchorDiagnostics(statuses, opts.strict),
+    ...(index?.diagnostics ?? []),
   ]);
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   if (opts.json) {
@@ -183,4 +205,142 @@ export function stale(ctx: Context, opts: { json?: boolean } = {}): number {
     }
   }
   return rows.length > 0 ? 1 : 0;
+}
+
+const samePlace = (a: { file: string; line: number; column: number }, b: typeof a) =>
+  a.file === b.file && a.line === b.line && a.column === b.column;
+
+const spot = (t: { file: string; line: number; symbol?: string }) =>
+  t.symbol ?? `${t.file}:${t.line + 1}`;
+
+/** Pairings whose reactors include this receive site itself (by key or anchor). */
+const sendersOfSite = (index: ConnectionIndex, site: Site) =>
+  index.pairings.filter((p) =>
+    p.reactors.some((r) => r.via !== 'handler' && r.via !== 'registered' && samePlace(r, site)),
+  );
+
+const leaf = (symbol: string) => symbol.slice(symbol.lastIndexOf(':') + 1);
+
+/**
+ * True when the reactor is one of several definitions of one handler name: the send site's
+ * handler (`p.candidates`), or a registered handler whose name has more than one definition.
+ */
+function isCandidate(p: Pairing, r: Reactor): boolean {
+  if (r.via === 'handler') return p.candidates !== undefined;
+  if (r.via !== 'registered' || r.symbol === undefined) return false;
+  const name = leaf(r.symbol);
+  return (
+    p.reactors.filter((o) => o.via === 'registered' && leaf(o.symbol ?? '') === name).length > 1
+  );
+}
+
+function reactorText(index: ConnectionIndex, p: Pairing): string {
+  return p.reactors
+    .map((r) => {
+      const at = index.sites.find((s) => s.role === 'receive' && samePlace(s, r));
+      const how = r.via === 'key' && r.key !== undefined && at ? ` (${at.matcher} ${r.key})` : '';
+      const status = r.confirmed ? '' : isCandidate(p, r) ? ' (candidate)' : ' ?';
+      return `${spot(r)}${how}${status}`;
+    })
+    .join(', ');
+}
+
+function siteLine(
+  index: ConnectionIndex,
+  site: Site,
+  unpaired: boolean,
+  pairingOf: Map<Site, Pairing>,
+): string {
+  const what = `${site.rule} ${site.role} ${site.key ?? site.handler ?? ''}`.trimEnd();
+  const head = `${site.file}:${site.line + 1}: ${what}`;
+  if (site.role === 'send') {
+    const p = pairingOf.get(site)!;
+    const missing = p.missingReceive ? ` · no receive site for ${site.key}` : '';
+    if (p.reactors.length === 0 && site.forwards) {
+      const { param, position } = site.forwards;
+      return `${head} → forwards parameter ${param} (argument ${position} of ${leaf(site.symbol ?? '')})`;
+    }
+    return `${head} → ${p.reactors.length ? reactorText(index, p) : 'unpaired'}${missing}`;
+  }
+  if (unpaired) return `${head} → unpaired`;
+  const n = sendersOfSite(index, site).length;
+  return `${head} ← ${n} sender${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Lists every connection site with what it pairs to, then one summary line per rule. Errors in
+ * the connections file go to stderr first and make the exit code 1, since a rule they drop
+ * finds nothing.
+ */
+export function sites(
+  ctx: Context,
+  opts: { rule?: string; unpaired?: boolean; json?: boolean } = {},
+): number {
+  const ws = readWorkspace(ctx.root);
+  const { rules } = ws.connections;
+  const ruleErrors = sortDiagnostics(
+    ws.diagnostics.filter((d) => d.severity === 'error' && d.file === CONNECTIONS_FILE),
+  );
+  for (const d of ruleErrors) ctx.io.err(formatDiagnostic(d, ctx.root));
+  const code = ruleErrors.length > 0 ? 1 : 0;
+  if (opts.rule !== undefined && !rules.some((r) => r.id === opts.rule)) {
+    ctx.io.err(`error: unknown rule "${opts.rule}"; known: ${rules.map((r) => r.id).join(', ')}`);
+    return 1;
+  }
+  const index = buildConnectionIndex(
+    ws.connections,
+    scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx)),
+  );
+  const silent = new Set(index.unpairedReceives);
+  const pairingOf = new Map(index.pairings.map((p) => [p.send, p]));
+  const isUnpaired = (s: Site) => {
+    if (s.role !== 'send') return silent.has(s);
+    const p = pairingOf.get(s)!;
+    return (p.reactors.length === 0 && !p.forwarded) || p.missingReceive === true;
+  };
+  const shown = index.sites.filter(
+    (s) => (opts.rule === undefined || s.rule === opts.rule) && (!opts.unpaired || isUnpaired(s)),
+  );
+  const summaries = ruleSummaries(index, ws.connections).filter(
+    (r) => opts.rule === undefined || r.rule === opts.rule,
+  );
+  if (opts.json) {
+    const rows = shown.map((s) => {
+      const row = {
+        file: s.file,
+        line: s.line + 1,
+        rule: s.rule,
+        role: s.role,
+        key: s.key,
+        handler: s.handler,
+        symbol: s.symbol,
+      };
+      if (s.role === 'send') {
+        const p = pairingOf.get(s)!;
+        return {
+          ...row,
+          ...(s.forwards ? { forwards: s.forwards } : {}),
+          ...(p.forwarded ? { forwarded: true } : {}),
+          reactors: p.reactors.map((r) => ({ ...r, line: r.line + 1, column: r.column + 1 })),
+          ...(p.missingReceive ? { missingReceive: true } : {}),
+        };
+      }
+      return {
+        ...row,
+        senders: sendersOfSite(index, s).map((p) => ({ file: p.send.file, line: p.send.line + 1 })),
+      };
+    });
+    ctx.io.out(JSON.stringify({ sites: rows, rules: summaries }, null, 2));
+    return code;
+  }
+  for (const s of shown) ctx.io.out(siteLine(index, s, silent.has(s), pairingOf));
+  for (const r of summaries) {
+    ctx.io.out(
+      `${r.rule}: ${r.send} send, ${r.receive} receive, ${r.paired} ${r.keyed ? 'keys' : 'sends'} paired ` +
+        `(${r.confirmed} confirmed), ${r.unpaired} unpaired` +
+        (r.missingReceive > 0 ? `, ${r.missingReceive} without receive site` : '') +
+        (r.forwarding > 0 ? `, ${r.forwarding} forwarding` : ''),
+    );
+  }
+  return code;
 }

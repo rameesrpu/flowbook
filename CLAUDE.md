@@ -5,7 +5,9 @@ agent-written JSONL files stored in the documented repo under `.flowbook/`, so t
 the code. Agents write flows (via `skill/flowbook/SKILL.md` + the CLI); humans read them in the
 extension. The UI is read-only by design.
 
-Pending work and ready-to-use agent briefs: [docs/agent-workflows/backlog.md](docs/agent-workflows/backlog.md).
+Start every session by reading [docs/tracker.md](docs/tracker.md) (current state, rulings, open
+points; update it before ending a session) and [docs/roadmap.md](docs/roadmap.md) (direction and
+order of designs). Ready-to-use agent briefs: [docs/agent-workflows/backlog.md](docs/agent-workflows/backlog.md).
 
 ## Environment
 
@@ -27,6 +29,7 @@ pnpm lint                  # eslint
 pnpm exec prettier --check .
 pnpm test                  # vitest: packages/*/src/**/*.test.ts (needs core/resolver built)
 pnpm flowbook check --strict --root fixtures/cpp-sample   # CLI from packages/cli/dist
+pnpm flowbook sites --root fixtures/cpp-sample            # connection sites + one summary line per rule
 pnpm --filter @flowbook/webview dev                       # webview harness on the fixture
 pnpm --filter flowbook package                            # → packages/extension/flowbook-*.vsix
 pnpm --filter flowbook test:e2e                           # real VS Code smoke test (needs a display)
@@ -37,16 +40,16 @@ test → strict fixture check → package. Run that sequence before pushing.
 
 ## Layout
 
-| Path                  | What                                                                                                                                                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `packages/core`       | zod schema (→ `schema/flowbook.schema.json`), JSONL parse with line diagnostics, validation, grouping (`buildGroups`, `collapseBelow`), `project` (edge aggregation for collapsed groups), host↔webview `protocol.ts` (types only). Browser-safe: no Node imports. |
-| `packages/resolver`   | Node-only. web-tree-sitter C/C++ symbol resolution + fingerprints (`symbols.ts`), `Resolver`/`match`, `checkAnchors`/`anchorDiagnostics`, fs + git helpers. Shared by CLI and extension.                                                                           |
-| `packages/cli`        | `flowbook check / resolve / stamp / stale`; esbuild bundle + wasm copied into `dist/`.                                                                                                                                                                             |
-| `packages/webview`    | React 18 + @xyflow/react + elkjs (main thread). Flowchart, sequence view, side panel. Builds to fixed names `dist/webview.{js,css}` — the extension depends on them.                                                                                               |
-| `packages/extension`  | VS Code host. `model.ts`/`diff.ts` are pure (unit-tested, must not import `vscode`); `panel.ts`, `tree.ts`, `codelens.ts`, `host.ts` use the API. Bundled to `dist/extension.cjs`.                                                                                 |
-| `skill/flowbook`      | Agent skill: `SKILL.md`, `references/schema.md`, `references/example.jsonl`.                                                                                                                                                                                       |
-| `fixtures/cpp-sample` | Synthetic C/C++ project + stamped flows; the test fixture for everything.                                                                                                                                                                                          |
-| `examples/lua`        | Real-world example (Lua 5.4.7); sources fetched by `fetch.sh`, gitignored.                                                                                                                                                                                         |
+| Path                  | What                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core`       | zod schema (→ `schema/flowbook.schema.json`), JSONL parse with line diagnostics, validation, grouping (`buildGroups`, `collapseBelow`), `project` (edge aggregation for collapsed groups), host↔webview `protocol.ts` (types only). Browser-safe: no Node imports.                                                                                                     |
+| `packages/resolver`   | Node-only. web-tree-sitter C/C++ symbol resolution + fingerprints (`symbols.ts`), `Resolver`/`match`, `checkAnchors`/`anchorDiagnostics`, fs + git helpers; connection points: `sites.ts` (matches rule matchers in a file), `scan.ts` (whole-root scan with cache), `pairing.ts` (joins send sites to reactors, `buildConnectionIndex`). Shared by CLI and extension. |
+| `packages/cli`        | `flowbook check / resolve / stamp / stale / sites`; esbuild bundle + wasm copied into `dist/`.                                                                                                                                                                                                                                                                         |
+| `packages/webview`    | React 18 + @xyflow/react + elkjs (main thread). Flowchart, sequence view, side panel. Builds to fixed names `dist/webview.{js,css}` — the extension depends on them.                                                                                                                                                                                                   |
+| `packages/extension`  | VS Code host. `model.ts`/`diff.ts` are pure (unit-tested, must not import `vscode`); `panel.ts`, `tree.ts`, `codelens.ts`, `host.ts` use the API. Bundled to `dist/extension.cjs`.                                                                                                                                                                                     |
+| `skill/flowbook`      | Agent skill: `SKILL.md`, `references/schema.md`, `references/example.jsonl`.                                                                                                                                                                                                                                                                                           |
+| `fixtures/cpp-sample` | Synthetic C/C++ project + stamped flows; the test fixture for everything.                                                                                                                                                                                                                                                                                              |
+| `examples/lua`        | Real-world example (Lua 5.4.7); sources fetched by `fetch.sh`, gitignored.                                                                                                                                                                                                                                                                                             |
 
 ## Design rules
 
@@ -55,6 +58,8 @@ test → strict fixture check → package. Run that sequence before pushing.
 - **Staleness = fingerprint** (sha1 of the definition with comments/whitespace normalized) +
   `verified` commit of the git repo _containing the source file_ (`headCommitFor`).
 - `fp`/`verified` are written only by `flowbook stamp`, which rewrites node lines only.
+- `.flowbook/connections.jsonl` holds `rule` and `connection` records (rules find send/receive sites
+  by scanning the repo; no `fp`/`verified`, no line numbers). `check` validates them.
 - Flow files: one `flow` record, then nodes, steps (`seq` 1..N; alternatives in one `alt` may
   share a seq), blocks (`loop|alt|par`, nest or disjoint). Unknown fields are errors (`.strict()`).
 - Schema changes: update `core/src/schema.ts`, `skill/flowbook/references/schema.md`, and the

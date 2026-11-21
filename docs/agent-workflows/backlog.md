@@ -2,7 +2,8 @@
 
 Open work after the v0.1 rebuild (all milestones done, CI green at `4310f43`). Each item is
 written as a self-contained brief: hand one to an agent as-is. Read [CLAUDE.md](../../CLAUDE.md)
-first; it has commands, layout and design rules.
+first; it has commands, layout and design rules. Order of work: [roadmap.md](../roadmap.md);
+decisions and open points per feature: [tracker.md](../tracker.md).
 
 ## How to run this backlog
 
@@ -73,11 +74,16 @@ Kick-off prompt for a new conversation:
 
 ## Track C — Resolver / CLI / skill (`packages/resolver`, `packages/cli`, `skill/`)
 
-### C2. Lua example in CI
+### C2. Examples in CI
 
 - Add a CI job (or step) that runs `examples/lua/fetch.sh` and
   `pnpm flowbook check --strict --root examples/lua`. Cache the clone. Fails if the skill-written
   flows drift from Lua 5.4.7.
+- Do the same for `examples/i-link` and `examples/p-net` (`fetch.sh`, then
+  `pnpm flowbook check --strict --root examples/<name>`), and compare the summary lines of
+  `pnpm flowbook sites --root examples/<name>` with the ones recorded in each README, so a
+  change in matching or pairing shows up as a diff. Both clones are pinned to a commit; cache
+  them.
 
 ### C3. Second dogfooding round
 
@@ -143,6 +149,47 @@ start by writing a real mailbox flow against the current schema to confirm the f
 Out of scope for now: statecharts (AR/alarm state machines); single scenarios through them still
 fit as flows.
 
+## Track F — Connection points follow-ups (`packages/core`, `packages/resolver`, `packages/cli`, `packages/extension`)
+
+Found on 2026-11-15 by writing rules for two real protocol stacks (`examples/i-link`,
+`examples/p-net`) and by the final review. F1–F6 change the rule format, so they need a short
+design first (update `core/src/connections.ts`, `schema.md`, the fixture and both examples
+together). F7 items are small and independent.
+
+F1–F4 were built by design 1b (see **Done**).
+
+### F5. Excluding one receive site, and run-time flag values
+
+- **Problem:** a `test` matcher also matches a condition in a debug-log block, and a keyed
+  connection cannot exclude one site. Separately, a flag held in a variable set from
+  configuration can only be paired by an anchored connection, which joins it to every flag test.
+- **Approach:** a connection form with an anchored send and a keyed receive; an exclusion list.
+
+### F6. Callback slots without the application
+
+- Callback-slot pairing is only useful when the application is in the same Flowbook root; p-net's
+  callbacks pair only with its test fixture. Document this in the skill; consider a root that
+  spans several directories.
+
+### F7. Small items
+
+- An added anchored connection clears the whole scan cache (`rulesKeyOf` includes anchored files).
+- `isReceiveThenHandler` can combine the key reactor of one send site with the handler of another
+  on the same line.
+- `sites` looks pairings up per row (O(sites × pairings)); build a map.
+- A keyless handler send prints the handler in the key position of the `sites` line.
+- The connection lens provider's subscriptions are never disposed (same as `FlowLenses`).
+- A file whose parse throws is re-read on every scan; a skipped file that defines a handler stops
+  contributing definitions.
+- `check`'s summary line does not count rules or connections; symlinked directories are not
+  scanned.
+- Measure the scan inside VS Code on a root with several thousand files (only the CLI and
+  in-process timings were measured).
+- Forwarding (1b): the `check` hint names only the key position when a wrapper also forwards its
+  handler; C++ hints use the qualified name; a site inside a lambda uses the enclosing function's
+  parameters; overloads give duplicate warnings; a `keys`-filtered wrapper site gives no warning; a forwarding
+  site with reactors (i-link `iolink_ode.c:447`) prints only its reactors in `sites`, not "forwards".
+
 ## Decisions already made (don't re-litigate)
 
 Agents write, humans read (UI read-only + "copy agent prompt"); one JSONL file per flow;
@@ -167,3 +214,10 @@ highlight in the flowchart); ELK on the main thread (no worker under the webview
   `node` if present, else VS Code's runtime via `ELECTRON_RUN_AS_NODE`; refreshed on activation)
   and **Flowbook: Add Agent Skill to Repository** (`.claude/skills/flowbook/`). Decision: vsix
   only, no npm package. Docs follow in B1b.
+- Connection points and the editor jump (design
+  `docs/superpowers/specs/2026-11-15-connection-points-design.md`): rules and connections in
+  `.flowbook/connections.jsonl`, `flowbook sites`, connection checks in `flowbook check`, editor
+  lenses and `Go to Reactor` / `Go to Sender`, examples `examples/i-link` and `examples/p-net`.
+- F1–F4 rule format follow-ups (design 1b,
+  `docs/superpowers/specs/2026-11-21-rule-format-followups-design.md`): `keyMember`, `keys`,
+  forwarding sites, dispatcher connections.

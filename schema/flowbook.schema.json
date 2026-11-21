@@ -277,6 +277,469 @@
           "additionalProperties": false
         }
       ]
+    },
+    "connectionsLine": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "rule"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "queue",
+                "event",
+                "timer",
+                "callback",
+                "request"
+              ],
+              "description": "For display only"
+            },
+            "send": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "call": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "key": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "1-based argument position"
+                      },
+                      "handler": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "1-based argument position"
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "call"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "case": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "case"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "test": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "test"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "assign": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "as": {
+                        "type": "string",
+                        "enum": [
+                          "key",
+                          "handler"
+                        ]
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "assign",
+                      "as"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "invoke": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "invoke"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "receive": {
+              "description": "Omit when every send names a handler",
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "call": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "key": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "1-based argument position"
+                      },
+                      "handler": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "1-based argument position"
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "call"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "case": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "case"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "test": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "test"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "assign": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "as": {
+                        "type": "string",
+                        "enum": [
+                          "key",
+                          "handler"
+                        ]
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "assign",
+                      "as"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "invoke": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Regular expression that must match the whole name"
+                      },
+                      "files": {
+                        "description": "Globs limiting where it applies",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "invoke"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "context": {
+              "description": "Where reactors run, e.g. \"master thread\"",
+              "type": "string"
+            },
+            "notes": {
+              "type": "string",
+              "description": "Markdown text"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "title",
+            "type",
+            "send"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "connection"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
+            "rule": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+              "description": "Id of the rule it belongs to"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "description": "Keyed form",
+              "type": "string",
+              "minLength": 1
+            },
+            "send": {
+              "description": "Anchored form: functions containing send sites",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Repo-relative path to the source file, e.g. \"src/net/tls.c\""
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Qualified symbol name, e.g. \"parse_header\" or \"net::TlsSession::handshake\""
+                  },
+                  "sig": {
+                    "description": "Parameter types to pick one overload, e.g. \"(const char*, size_t)\"",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file",
+                  "symbol"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "receive": {
+              "description": "Anchored form: functions containing receive sites",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Repo-relative path to the source file, e.g. \"src/net/tls.c\""
+                  },
+                  "symbol": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Qualified symbol name, e.g. \"parse_header\" or \"net::TlsSession::handshake\""
+                  },
+                  "sig": {
+                    "description": "Parameter types to pick one overload, e.g. \"(const char*, size_t)\"",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file",
+                  "symbol"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "context": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string",
+              "description": "Markdown text"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "rule",
+            "title"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }

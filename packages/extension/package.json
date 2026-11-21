@@ -28,6 +28,7 @@
   "activationEvents": [
     "workspaceContains:**/.flowbook",
     "workspaceContains:**/.flowbook/config.jsonl",
+    "workspaceContains:**/.flowbook/connections.jsonl",
     "workspaceContains:**/.flowbook/flows/*.jsonl"
   ],
   "contributes": {
@@ -74,7 +75,7 @@
         "command": "flowbook.openFlow",
         "title": "Open Flow\u2026",
         "category": "Flowbook",
-        "icon": "$(type-hierarchy-sub)"
+        "icon": "$(search)"
       },
       {
         "command": "flowbook.installCli",
@@ -90,10 +91,25 @@
         "command": "flowbook.showUsages",
         "title": "Show Flows Using This Symbol",
         "category": "Flowbook"
+      },
+      {
+        "command": "flowbook.goToReactor",
+        "title": "Go to Reactor",
+        "category": "Flowbook"
+      },
+      {
+        "command": "flowbook.goToSender",
+        "title": "Go to Sender",
+        "category": "Flowbook"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "flowbook.openFlow",
+          "when": "view == flowbook.flows",
+          "group": "navigation@0"
+        },
         {
           "command": "flowbook.refresh",
           "when": "view == flowbook.flows",
@@ -119,6 +135,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show \"Flowbook: in N flows\" above C/C++ definitions that appear in flows."
+        },
+        "flowbook.connections.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show where a post, event or timer is handled, and who posts to a handler."
         }
       }
     }
