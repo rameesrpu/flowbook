@@ -12,7 +12,7 @@ import { match } from './resolver.js';
 import type { FileScan } from './sites.js';
 import type { SymbolInfo } from './symbols.js';
 
-export type Via = 'case' | 'scope' | 'caller' | 'table' | 'none';
+export type Via = 'case' | 'test' | 'scope' | 'caller' | 'table' | 'none';
 
 export interface Transition {
   /** Source state, or '*' when unknown. */
@@ -146,13 +146,14 @@ function siteTarget(t: TransitionSite): Target {
 const triggersIn = (index: ConnectionIndex, file: string, start: number, end: number) =>
   index.pairings.filter((p) => p.send.file === file && p.send.line >= start && p.send.line <= end);
 
-/** Source state of a set site: case, scope, caller, else '*'. */
+/** Source state of a set site: case, test, scope, caller, else '*'. */
 function sourcesOf(
   t: TransitionSite,
   scopes: { record: Located<ScopeRecord>; functions: Definition[] }[],
   scan: FileScan | undefined,
 ): { from: string; via: Via }[] {
   if (t.fromCases.length > 0) return t.fromCases.map((from) => ({ from, via: 'case' as const }));
+  if (t.fromTests.length > 0) return t.fromTests.map((from) => ({ from, via: 'test' as const }));
   const scope = scopes.find((s) => s.functions.some((d) => holds(d, t)));
   if (scope) return [{ from: scope.record.state, via: 'scope' }];
   if (t.symbol !== undefined && scan) {
@@ -298,7 +299,7 @@ export function buildMachineIndex(
 /** Counts per machine, for the summary line. */
 export function machineSummaries(mi: MachineIndex): MachineSummary[] {
   return mi.machines.map((m) => {
-    const via: Record<Via, number> = { case: 0, scope: 0, caller: 0, table: 0, none: 0 };
+    const via: Record<Via, number> = { case: 0, test: 0, scope: 0, caller: 0, table: 0, none: 0 };
     for (const t of m.transitions) via[t.via]++;
     return {
       machine: m.id,

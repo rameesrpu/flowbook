@@ -138,6 +138,37 @@ void other(ar_t *ar)
     ]);
   });
 
+  it('takes the states an enclosing if tests, after the case and before a scope', () => {
+    const text = `void sm_init(ar_t *ar)
+{
+  if (ar->state == ST_WAIT) set_state (ar, ST_RUN);
+  set_state (ar, ST_IDLE);
+}
+`;
+    const mi = build({ 'src/sm.c': text }, [machine()], [scope()]);
+    expect(lines(mi)).toEqual(['2 ST_WAIT -> ST_RUN test []', '3 ST_IDLE -> ST_IDLE scope []']);
+    expect(machineSummaries(mi)[0]!.via.test).toBe(1);
+  });
+
+  it('prefers a scope over a caller', () => {
+    const text = `void sm_init(ar_t *ar)
+{
+  set_state (ar, ST_RUN);
+}
+void sm(ar_t *ar)
+{
+  switch (ar->state) {
+  case ST_WAIT:
+    sm_init (ar);
+    break;
+  }
+}
+`;
+    expect(lines(build({ 'src/sm.c': text }, [machine()], [scope()]))).toEqual([
+      '2 ST_IDLE -> ST_RUN scope []',
+    ]);
+  });
+
   it('takes the one state case that calls the enclosing function', () => {
     const text = `static void go_run(ar_t *ar)
 {
@@ -350,7 +381,7 @@ describe('buildMachineIndex: view', () => {
         transitions: 3,
         unknown: 0,
         setsOff: 1,
-        via: { case: 3, scope: 0, caller: 0, table: 0, none: 0 },
+        via: { case: 3, test: 0, scope: 0, caller: 0, table: 0, none: 0 },
       },
     ]);
   });

@@ -54,6 +54,7 @@ describe('collectTransitions', () => {
         sig: '(ar_t*,int)',
         to: 'ST_RUN',
         fromCases: ['ST_IDLE'],
+        fromTests: [],
         event: 'EV_START',
         kind: 'set',
         region: { startLine: 5, endLine: 8 },
@@ -203,6 +204,7 @@ static const trans_t other[] = { {EV_X, ST_X, f} };
         column: 2,
         to: 'ST_STARTUP',
         fromCases: [],
+        fromTests: [],
         event: 'EV_MANUAL',
         label: 'T1',
         kind: 'row',
@@ -217,6 +219,7 @@ static const trans_t other[] = { {EV_X, ST_X, f} };
         column: 2,
         to: 'ST_OTHER',
         fromCases: [],
+        fromTests: [],
         event: 'EV_AUTO',
         kind: 'row',
         action: 'cm_other',
@@ -246,5 +249,89 @@ static const trans_t other[] = { {EV_X, ST_X, f} };
       stateCalls: [],
       stateLabels: [],
     });
+  });
+
+  it('gives one transition per event label of a fall-through group', () => {
+    const text = `void sm(int s, int event)
+{
+  switch (s) {
+  case ST_RUN:
+    switch (event) {
+    case EV_DATA:
+    case OTHER:
+    case EV_ABORT:
+      set_state (0, ST_IDLE);
+      break;
+    }
+    break;
+  }
+}
+`;
+    expect(scan(text).transitions.map((t) => [t.fromCases, t.event, t.to])).toEqual([
+      [['ST_RUN'], 'EV_DATA', 'ST_IDLE'],
+      [['ST_RUN'], 'EV_ABORT', 'ST_IDLE'],
+    ]);
+  });
+
+  it('takes source states from the innermost if comparing state names with ==', () => {
+    const text = `void f(ar_t *ar, int s)
+{
+  if (ar->state == ST_W_ARDY) set_state (ar, ST_A);
+  if (ST_X == s || s == (int)ST_Y) set_state (ar, ST_B);
+  if (s == ST_X && t) { if (ready) set_state (ar, ST_C); }
+  if (s != ST_X) set_state (ar, ST_D);
+  if (s == ST_X && t != ST_Y) set_state (ar, ST_E);
+  if (is (ST_X)) set_state (ar, ST_F);
+  if (s == ST_X) { } else set_state (ar, ST_G);
+  if (s == ST_X) { if (s != ST_Y) set_state (ar, ST_H); }
+  if (s == ST_X) set_state (ar, ST_I);
+}
+`;
+    expect(Object.fromEntries(scan(text).transitions.map((t) => [t.to, t.fromTests]))).toEqual({
+      ST_A: ['ST_W_ARDY'],
+      ST_B: ['ST_X', 'ST_Y'],
+      ST_C: ['ST_X'],
+      ST_D: [],
+      ST_E: [],
+      ST_F: [],
+      ST_G: [],
+      ST_H: [],
+      ST_I: ['ST_X'],
+    });
+  });
+
+  it('omits the guard when the same if gives the source states', () => {
+    const text = `void f(int s)
+{
+  if (s == ST_X) set_state (0, ST_A);
+  if (s == ST_X) { if (ready) set_state (0, ST_B); }
+  switch (s) { case ST_Y: if (s == ST_X) set_state (0, ST_C); break; }
+}
+`;
+    const ts = scan(text).transitions;
+    expect(ts.map((t) => [t.to, t.fromTests, t.guard])).toEqual([
+      ['ST_A', ['ST_X'], undefined],
+      ['ST_B', ['ST_X'], undefined],
+      ['ST_C', ['ST_X'], 's==ST_X'],
+    ]);
+  });
+
+  it('drops comments from the guard text', () => {
+    const text = `void f(dl_t *dl)
+{
+  if (dl->a == 1 // first
+      && /* second */ dl->b)
+    set_state (dl, ST_A);
+}
+`;
+    expect(scan(text).transitions[0]!.guard).toBe('dl->a==1&&dl->b');
+  });
+
+  it('writes sig only when defined', () => {
+    const text = `int x = (set_state (0, ST_A), 0);
+`;
+    const [t] = scan(text, [machine()], 'src/sm.cpp').transitions;
+    expect(t).toBeDefined();
+    expect('sig' in t!).toBe(false);
   });
 });

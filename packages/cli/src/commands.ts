@@ -65,12 +65,14 @@ export function check(ctx: Context, opts: { strict?: boolean; json?: boolean } =
       `${ws.flows.length} flows, ${nodes} nodes: ${errors} errors, ` +
         `${diagnostics.length - errors} warnings (${count('stale')} stale, ${count('unstamped')} unstamped)` +
         (hasMachines && machineIndex
-          ? `, ${machineSummaries(machineIndex).reduce((n, m) => n + m.unknown, 0)} unknown source states`
+          ? unknownSources(machineSummaries(machineIndex).reduce((n, m) => n + m.unknown, 0))
           : ''),
     );
   }
   return errors > 0 ? 1 : 0;
 }
+
+const unknownSources = (n: number) => `, ${n} unknown source state${n === 1 ? '' : 's'}`;
 
 /** The anchor an agent should write for a symbol; `sig` only when the name is overloaded. */
 function anchorFor(file: string, sym: SymbolInfo, all: SymbolInfo[]): Anchor {
@@ -356,6 +358,7 @@ export function sites(
 
 const VIA_WORDS: [Via, string][] = [
   ['case', 'from a case'],
+  ['test', 'from a test'],
   ['scope', 'from a scope'],
   ['caller', 'from a caller'],
   ['table', 'from a table'],

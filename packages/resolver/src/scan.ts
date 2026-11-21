@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Connections, type Matcher } from '@flowbook/core';
+import { matchesAny, type Connections, type Matcher } from '@flowbook/core';
 import { listSourceFiles } from './fs.js';
 import type { Resolver } from './resolver.js';
 import { compileName, type FileScan } from './sites.js';
@@ -49,7 +49,7 @@ function anchoredFiles(connections: Connections): Set<string> {
 export function rulesKeyOf(connections: Connections): string {
   const rules = connections.rules.map((r) => ({ ...r, line: undefined }));
   const machines = (connections.machines ?? []).map((m) => ({ ...m, line: undefined }));
-  const scopes = (connections.scopes ?? []).map((m) => ({ ...m, line: undefined }));
+  const scopes = (connections.scopes ?? []).map((s) => ({ ...s, line: undefined }));
   const anchored = anchoredFiles(connections);
   return JSON.stringify([rules, [...anchored].sort(), machines, scopes]);
 }
@@ -202,19 +202,8 @@ export function literalFragments(src: string): string[] | null {
   return out;
 }
 
-/**
- * Fragments of every matcher name and of every machine's `set` names, `rows` and `states` (so
- * state labels in files without setters are seen); null when any of them has none.
- */
-function ruleFragments(connections: Connections): string[] | null {
-  const names: string[] = [];
-  for (const rule of connections.rules)
-    for (const m of [...rule.send, ...(rule.receive ?? [])]) names.push(nameOf(m));
-  for (const machine of connections.machines ?? []) {
-    names.push(machine.states);
-    for (const m of machine.set ?? []) names.push(nameOf(m));
-    for (const t of machine.tables ?? []) names.push(t.rows);
-  }
+/** Fragments of all the names; null when any of them has none. */
+function fragmentsOf(names: string[]): string[] | null {
   const all: string[] = [];
   for (const name of names) {
     if (!compileName(name)) continue;
@@ -223,6 +212,30 @@ function ruleFragments(connections: Connections): string[] | null {
     all.push(...f);
   }
   return all;
+}
+
+/**
+ * Whether a file's text may hold a site: it contains a fragment of a rule matcher name (any
+ * path), or of a machine's `states`, `set` names or `rows` (so state labels in files without
+ * setters are seen) when the path is in that machine's `files`. A null fragment list matches
+ * every text.
+ */
+function prefilter(connections: Connections): (path: string, text: string) => boolean {
+  const names: string[] = [];
+  for (const rule of connections.rules)
+    for (const m of [...rule.send, ...(rule.receive ?? [])]) names.push(nameOf(m));
+  const groups = [{ files: undefined as string[] | undefined, fragments: fragmentsOf(names) }];
+  for (const machine of connections.machines ?? []) {
+    const own = [machine.states, ...(machine.set ?? []).map(nameOf)];
+    for (const t of machine.tables ?? []) own.push(t.rows);
+    groups.push({ files: machine.files, fragments: fragmentsOf(own) });
+  }
+  return (path, text) =>
+    groups.some(
+      (g) =>
+        matchesAny(path, g.files) &&
+        (g.fragments === null || g.fragments.some((f) => text.includes(f))),
+    );
 }
 
 interface Stamp {
@@ -258,7 +271,7 @@ function* run(
   if (!hasWork(connections)) return result;
   const rules = connections.rules;
   const machines = connections.machines ?? [];
-  const fragments = ruleFragments(connections);
+  const wanted = prefilter(connections);
   const present = new Set(source.paths);
   if (cache) {
     const key = rulesKeyOf(connections);
@@ -324,7 +337,7 @@ function* run(
     if (before && tooLarge(path, before.size)) continue;
     const got = load(path, before);
     if (!got || (!before && tooLarge(path, got.text.length))) continue;
-    if (fragments === null || fragments.some((f) => got.text.includes(f))) {
+    if (wanted(path, got.text)) {
       const scan = parse(path, got.text);
       if (!scan) continue;
       result.set(path, scan);

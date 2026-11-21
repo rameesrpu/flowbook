@@ -396,17 +396,34 @@ describe('machines in the scan', () => {
 
   it('runs without rules and prefilters on set names, rows and states', () => {
     const root = temp();
-    put(root, 'src/set.c', 'void f(void) { sm_set_state(0, ST_RUN); }');
-    put(root, 'src/rows.c', 'const row_t sm_rows[] = { {EV_A, ST_RUN} };');
+    // Each positive holds only one kind of fragment: the set name, the rows name, the states.
+    put(root, 'src/set.c', 'void f(int next) { sm_set_state(0, next); }');
+    put(root, 'src/rows.c', 'const row_t sm_rows[] = { {EV_A, NEXT} };');
     put(root, 'src/labels.c', 'void g(int s) { switch (s) { case ST_IDLE: run(); break; } }');
     put(root, 'src/none.c', 'void h(void) { other(); }');
     const scans = scanRoot(root, withMachines(), resolver);
     expect([...scans.keys()].sort()).toEqual(['src/labels.c', 'src/rows.c', 'src/set.c']);
-    expect(scans.get('src/set.c')!.transitions.map((t) => t.to)).toEqual(['ST_RUN']);
-    expect(scans.get('src/rows.c')!.transitions.map((t) => t.kind)).toEqual(['row']);
     expect(scans.get('src/labels.c')!.stateCalls).toEqual([
       { machine: 'sm', state: 'ST_IDLE', callee: 'run' },
     ]);
+    put(root, 'src/set.c', 'void f(void) { sm_set_state(0, ST_RUN); }');
+    put(root, 'src/rows.c', 'const row_t sm_rows[] = { {EV_A, ST_RUN} };');
+    const again = scanRoot(root, withMachines(), resolver);
+    expect(again.get('src/set.c')!.transitions.map((t) => t.to)).toEqual(['ST_RUN']);
+    expect(again.get('src/rows.c')!.transitions.map((t) => t.kind)).toEqual(['row']);
+  });
+
+  it("counts a machine's fragments only inside its files; rule fragments stay global", () => {
+    const root = temp();
+    put(root, 'src/sm.c', 'void g(int s) { switch (s) { case ST_IDLE: break; } }');
+    put(root, 'include/types.h', 'enum { ST_IDLE, ST_RUN };');
+    put(root, 'include/post.h', 'void f(void) { job_post(1); ST_IDLE; }');
+    const c: Connections = {
+      ...withMachines(),
+      rules: [{ ...rule('job', 'job_post'), line: 1 }],
+      machines: [{ ...machine, files: ['src/**'], line: 2 }],
+    };
+    expect([...scanRoot(root, c, resolver).keys()].sort()).toEqual(['include/post.h', 'src/sm.c']);
   });
 
   it('scans files named by scope anchors and keys the cache on machines and scopes', () => {

@@ -35,7 +35,7 @@ describe('check', () => {
   it('passes on the stamped fixture', () => {
     expect(check(ctx)).toBe(0);
     expect(out.at(-1)).toBe(
-      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source states',
+      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source state',
     );
   });
 
@@ -334,7 +334,7 @@ describe('check with connections', () => {
   it('stays clean on the fixture', () => {
     expect(check(ctx)).toBe(0);
     expect(out.at(-1)).toBe(
-      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source states',
+      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source state',
     );
   });
 
@@ -342,7 +342,7 @@ describe('check with connections', () => {
     rmSync(join(root, '.flowbook/connections.jsonl'));
     expect(check(ctx)).toBe(0);
     expect(out.at(-1)).toBe(
-      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source states',
+      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source state',
     );
   });
 
@@ -439,6 +439,6 @@ describe('check with machines', () => {
     edit('.flowbook/machines.jsonl', '"state":"DEV_ST_POWER_ON"', '"state":"DEV_ST_TYPO"');
     expect(check(ctx, { strict: true })).toBe(0);
     expect(out.some((l) => l.includes('DEV_ST_TYPO') && l.includes('warning'))).toBe(true);
-    expect(out.at(-1)).toContain('1 unknown source states');
+    expect(out.at(-1)).toContain('1 unknown source state');
   });
 });

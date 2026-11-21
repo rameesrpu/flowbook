@@ -16,6 +16,11 @@ export interface TransitionSite {
   to: string;
   /** State labels of the innermost enclosing `case` group that has any (fall-through included). */
   fromCases: string[];
+  /**
+   * States the innermost enclosing `if` holding state names compares with `==` (the site in its
+   * then branch); empty when that condition also uses one otherwise (`!=`, a call argument).
+   */
+  fromTests: string[];
   /** Innermost enclosing `case` matching `events`; for rows, the `event` column. */
   event?: string;
   /** Condition of the one `if` enclosing the site within its region. */
@@ -97,7 +102,9 @@ function compactText(text: string): string {
 }
 
 function conditionText(node: Node): string {
-  const text = compactText(node.text);
+  let raw = node.text;
+  for (const c of node.descendantsOfType('comment')) if (c) raw = raw.replace(c.text, ' ');
+  const text = compactText(raw);
   // A parenthesized condition or condition clause: drop its own parentheses.
   return text.startsWith('(') && text.endsWith(')') ? text.slice(1, -1) : text;
 }
@@ -109,6 +116,34 @@ function commentText(node: Node): string {
     .replace(/^\/\*+|\*+\/$|^\/\/+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const NAMES = new Set(['identifier', 'qualified_identifier']);
+
+/**
+ * The state names a condition compares with `==`; undefined when it holds none, [] when one of
+ * them is used any other way.
+ */
+function testedStates(cond: Node, states: RegExp): string[] | undefined {
+  const found: string[] = [];
+  let other = false;
+  const visit = (n: Node) => {
+    if (NAMES.has(n.type)) {
+      const name = compact(n);
+      if (!states.test(name)) return;
+      let p = n.parent;
+      while (p && (p.type === 'parenthesized_expression' || p.type === 'cast_expression'))
+        p = p.parent;
+      if (p?.type === 'binary_expression' && p.childForFieldName('operator')?.text === '==') {
+        if (!found.includes(name)) found.push(name);
+      } else other = true;
+      return;
+    }
+    for (const c of n.namedChildren) if (c) visit(c);
+  };
+  visit(cond);
+  if (other) return [];
+  return found.length ? found : undefined;
 }
 
 /** Callees of the calls that are statements of `stmts`, through blocks and `return`. */
@@ -165,8 +200,11 @@ export function machineHooks(
     let region: Node | undefined;
     let regionStart = 0;
     let fromCases: string[] | undefined;
-    let event: string | undefined;
-    const guards: string[] = [];
+    let fromTests: string[] | undefined;
+    /** The `if` that gave `fromTests`. */
+    let testIf: number | undefined;
+    let events: string[] | undefined;
+    const guards: { text: string; at: number }[] = [];
     let fn: Node | undefined;
     let child = at;
     for (let p = at.parent; p; child = p, p = p.parent) {
@@ -185,17 +223,24 @@ export function machineHooks(
           const states = labels.filter((l) => m.states.test(l));
           if (states.length) fromCases = states;
         }
-        if (event === undefined && m.events) event = labels.find((l) => m.events!.test(l));
-      } else if (p.type === 'if_statement' && !region) {
+        if (!events && m.events) {
+          const found = labels.filter((l) => m.events!.test(l));
+          if (found.length) events = found;
+        }
+      } else if (p.type === 'if_statement') {
         const consequence = p.childForFieldName('consequence');
-        const alternative = p.childForFieldName('alternative');
         const cond = p.childForFieldName('condition');
-        if (cond && child.id === consequence?.id) guards.push(conditionText(cond));
+        if (cond && !fromTests && child.id === consequence?.id)
+          if ((fromTests = testedStates(cond, m.states))?.length) testIf = p.id;
+        if (region) continue;
+        const alternative = p.childForFieldName('alternative');
+        if (cond && child.id === consequence?.id)
+          guards.push({ text: conditionText(cond), at: p.id });
         else if (cond && child.id === alternative?.id) {
           // `else if`: the inner `if` already gave the guard.
           const inner = named(child);
           if (!(inner.length === 1 && inner[0]!.type === 'if_statement'))
-            guards.push(`!(${conditionText(cond)})`);
+            guards.push({ text: `!(${conditionText(cond)})`, at: p.id });
         }
       }
     }
@@ -206,21 +251,24 @@ export function machineHooks(
       column: site.column,
       to,
       fromCases: fromCases ?? [],
+      fromTests: fromTests ?? [],
       kind: 'set',
       region: { startLine: site.line, endLine: site.line },
     };
-    if (site.symbol !== undefined) {
-      t.symbol = site.symbol;
-      t.sig = site.sig;
-    }
-    if (event !== undefined) t.event = event;
-    if (guards.length === 1) t.guard = truncate(guards[0]!);
+    if (site.symbol !== undefined) t.symbol = site.symbol;
+    if (site.sig !== undefined) t.sig = site.sig;
+    // A source from a test already says what the guard would.
+    const fromTest = !fromCases && testIf !== undefined;
+    if (guards.length === 1 && !(fromTest && guards[0]!.at === testIf))
+      t.guard = truncate(guards[0]!.text);
     if (region) t.region = { startLine: regionStart, endLine: region.endPosition.row };
     else {
       const body = fn?.childForFieldName('body');
       if (body) t.region = { startLine: body.startPosition.row, endLine: body.endPosition.row };
     }
-    result.transitions.push(t);
+    // A fall-through group of event labels: one transition per event.
+    if (events) for (const event of events) result.transitions.push({ ...t, event });
+    else result.transitions.push(t);
   };
 
   const onCase = (node: Node) => {
@@ -303,13 +351,14 @@ export function machineHooks(
           column: row.startPosition.column,
           to,
           fromCases: [],
+          fromTests: [],
           kind: 'row',
           table,
           region: { startLine: row.startPosition.row, endLine: row.endPosition.row },
         };
         if (fn) {
           t.symbol = fn.symbol;
-          t.sig = fn.sig;
+          if (fn.sig !== undefined) t.sig = fn.sig;
         }
         const ev = slot(cols, spec.event);
         if (ev) t.event = compact(ev);
