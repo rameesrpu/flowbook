@@ -7,3 +7,4 @@ export * from './sites.js';
 export * from './machines.js';
 export * from './scan.js';
 export * from './pairing.js';
+export * from './machine-index.js';
