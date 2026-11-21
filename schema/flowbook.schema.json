@@ -332,6 +332,16 @@
                         "maximum": 9007199254740991,
                         "description": "1-based argument position"
                       },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
                       "files": {
                         "description": "Globs limiting where it applies",
                         "type": "array",
@@ -404,6 +414,16 @@
                           "key",
                           "handler"
                         ]
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
                       },
                       "files": {
                         "description": "Globs limiting where it applies",
@@ -471,6 +491,16 @@
                         "maximum": 9007199254740991,
                         "description": "1-based argument position"
                       },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
+                      },
                       "files": {
                         "description": "Globs limiting where it applies",
                         "type": "array",
@@ -543,6 +573,16 @@
                           "key",
                           "handler"
                         ]
+                      },
+                      "keyMember": {
+                        "description": "Take the field or variable name of the key argument (x->mbox gives mbox)",
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "keys": {
+                        "description": "Regular expression the derived key must match entirely",
+                        "type": "string",
+                        "minLength": 1
                       },
                       "files": {
                         "description": "Globs limiting where it applies",

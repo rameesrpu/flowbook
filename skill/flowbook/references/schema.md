@@ -96,13 +96,13 @@ A matcher has exactly one of the five keys below, plus an optional `"files": [gl
 where it applies. Every name is a regular expression that must match the whole name, so a plain
 name is an exact match. Argument positions are 1-based.
 
-| Matcher                                     | Matches                                                        | Key                    | Handler      |
-| ------------------------------------------- | -------------------------------------------------------------- | ---------------------- | ------------ |
-| `{"call": name, "key"?: n, "handler"?: n}`  | a call to a function or function-like macro                    | argument `n`, if given | argument `n` |
-| `{"case": name}`                            | a `case` label that is an identifier                           | the identifier         |              |
-| `{"test": name}`                            | an identifier inside the condition of an `if`, `while` or `?:` | the identifier         |              |
-| `{"assign": field, "as": "key"\|"handler"}` | an assignment or designated initializer of a struct field      | see below              | see below    |
-| `{"invoke": field}`                         | a call through a struct field, `x->f (…)` or `x.f (…)`         | the field name         |              |
+| Matcher                                                                      | Matches                                                        | Key                    | Handler      |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------- | ------------ |
+| `{"call": name, "key"?: n, "handler"?: n, "keyMember"?: true, "keys"?: re}`  | a call to a function or function-like macro                    | argument `n`, if given | argument `n` |
+| `{"case": name}`                                                             | a `case` label that is an identifier                           | the identifier         |              |
+| `{"test": name}`                                                             | an identifier inside the condition of an `if`, `while` or `?:` | the identifier         |              |
+| `{"assign": field, "as": "key"\|"handler", "keyMember"?: true, "keys"?: re}` | an assignment or designated initializer of a struct field      | see below              | see below    |
+| `{"invoke": field}`                                                          | a call through a struct field, `x->f (…)` or `x.f (…)`         | the field name         |              |
 
 For `assign`, `"as": "key"` makes the right-hand side the key; `"as": "handler"` makes the
 right-hand side the handler and the field name the key. A key taken from an argument or a
@@ -111,6 +111,13 @@ removed. A handler is an identifier, possibly written as `&fn` or `(fn)`, which 
 anything else (a call, a cast, an array element) is kept as a site and reported as having an
 unresolved handler. Assigning `NULL`, `nullptr` or `0` to a handler field clears the slot and is
 not a registration, so it gives no site.
+
+`keyMember: true` (call: requires `key`; assign: requires `"as": "key"`) and `keys` (a regular
+expression, whole match) refine how a key is derived. Order: take the argument or right-hand
+side; unwrap `&`, parentheses and casts; with `keyMember`, a field access (also on a subscript,
+`x[i].mbox`) gives its field name, an identifier gives itself, anything else the compact text;
+without it, the rule above applies. Then `keys` is applied to the result, and a site whose key
+fails it (or that has no key) is dropped. Unknown matcher fields are errors.
 
 ```jsonl
 {"kind":"rule","id":"job","title":"Job queue","type":"queue","context":"rt main task","send":[{"call":"job_post","key":2,"handler":3}],"receive":[{"case":"JOB_.*"}]}
@@ -133,7 +140,7 @@ not a registration, so it gives no site.
 | `context` | string?        | overrides the rule's `context`                  |
 | `notes`   | markdown?      |                                                 |
 
-Exactly one form:
+Exactly one form (a connection with none of them is an error):
 
 - **Keyed**: `key` only. Names and confirms the pairing derived for that rule and key. When the
   rule has `receive` matchers, some receive site must have the key, otherwise `check` reports
@@ -142,5 +149,9 @@ Exactly one form:
   `send` functions with every receive site inside the `receive` functions, which is how plain
   queues are paired. A `receive` function may instead be one of several same-named definitions of
   the handler named at those send sites; that picks the definition.
+
+- **Dispatcher**: non-empty `receive` only (no `key`, no `send`). Names functions that dispatch
+  on keys (a switch over message types); the rule must have `receive` matchers. `send` alone is
+  an error.
 
 Anchors are the usual `file` + `symbol` (+ `sig`).

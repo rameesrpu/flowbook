@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  isDispatcherForm,
   jsonSchemas,
   loadWorkspace,
   matcherRegex,
@@ -25,6 +26,73 @@ const diag = (text: string) => all(text).map((d) => d.message);
 
 const rule = (extra: string, id = 'r') =>
   `{"kind":"rule","id":"${id}","title":"T","type":"queue",${extra}}`;
+
+const ANCHOR = '{"file":"a.c","symbol":"main"}';
+const withConn = (ruleExtra: string, connExtra: string, id = 'd') =>
+  `${rule(ruleExtra, 'job')}\n{"kind":"connection","id":"${id}","rule":"job","title":"T"${connExtra}}`;
+const R = '"send":[{"call":"a"}],"receive":[{"case":"x"}]';
+
+describe('1b rule fields', () => {
+  it('accepts keyMember and keys on call and assign', () => {
+    expect(
+      diag(
+        rule(
+          '"send":[{"call":"post","key":1,"keyMember":true,"keys":"BOX_.*"}],"receive":[{"assign":"type","as":"key","keyMember":true,"keys":"JOB_(A|B)"}]',
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('rejects keyMember without a key', () => {
+    expect(
+      diag(rule('"send":[{"call":"post","keyMember":true}],"receive":[{"case":"x"}]')),
+    ).toEqual(['"keyMember" needs "key"']);
+    expect(
+      diag(
+        rule('"send":[{"call":"a"}],"receive":[{"assign":"h","as":"handler","keyMember":true}]'),
+      ),
+    ).toEqual(['"keyMember" needs "as": "key"']);
+  });
+
+  it('reports an invalid keys expression', () => {
+    const m = diag(rule('"send":[{"call":"post","key":1,"keys":"("}],"receive":[{"case":"x"}]'));
+    expect(m.length).toBe(1);
+    expect(m[0]!.startsWith('invalid regular expression "("')).toBe(true);
+  });
+
+  it('accepts a dispatcher connection', () => {
+    expect(diag(withConn(R, `,"receive":[${ANCHOR}]`))).toEqual([]);
+  });
+
+  it('rejects send without receive', () => {
+    expect(diag(withConn(R, `,"send":[${ANCHOR}]`))).toEqual([
+      'an anchored connection needs non-empty "send" and "receive"',
+    ]);
+  });
+
+  it('rejects a dispatcher on a rule without receive matchers', () => {
+    const text = `{"kind":"rule","id":"timer","title":"T","type":"timer","send":[{"call":"f","handler":2}]}\n{"kind":"connection","id":"d","rule":"timer","title":"T","receive":[${ANCHOR}]}`;
+    expect(diag(text)).toEqual([
+      'dispatcher connection "d": rule "timer" has no "receive" matchers',
+    ]);
+  });
+
+  it('keeps only the unknown-rule error for a dispatcher on an unknown rule', () => {
+    const text = `{"kind":"connection","id":"d","rule":"nope","title":"T","receive":[${ANCHOR}]}`;
+    expect(diag(text)).toEqual(['unknown rule "nope"']);
+  });
+
+  it('requires some form', () => {
+    expect(diag(withConn(R, ''))).toEqual([
+      'a connection needs "key", "receive", or "send" and "receive"',
+    ]);
+  });
+
+  it('exports isDispatcherForm', () => {
+    const c = parseConnections(withConn(R, `,"receive":[${ANCHOR}]`), F);
+    expect(isDispatcherForm(c.connections[0]!)).toBe(true);
+  });
+});
 
 describe('connections', () => {
   it('parses the fixture: 5 rules, 2 connections, no diagnostics', () => {
