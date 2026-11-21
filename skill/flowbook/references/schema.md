@@ -120,10 +120,10 @@ without it, the rule above applies. Then `keys` is applied to the result, and a 
 fails it (or that has no key) is dropped. Unknown matcher fields are errors.
 
 ```jsonl
-{"kind":"rule","id":"job","title":"Job queue","type":"queue","context":"rt main task","send":[{"call":"job_post","key":2,"handler":3}],"receive":[{"case":"JOB_.*"}]}
+{"kind":"rule","id":"job","title":"Job queue","type":"queue","context":"rt main task","send":[{"call":"job_post","key":2,"handler":3},{"call":"job_post_typed","key":1,"handler":2},{"assign":"type","as":"key","keys":"JOB_TICK"}],"receive":[{"case":"JOB_.*"}]}
 {"kind":"rule","id":"timer","title":"Timer","type":"timer","send":[{"call":"timer_add","handler":2}]}
 {"kind":"rule","id":"app-cb","title":"Application callback","type":"callback","send":[{"invoke":".*_cb"}],"receive":[{"assign":".*_cb","as":"handler"}]}
-{"kind":"rule","id":"mbox","title":"Mailbox","type":"queue","send":[{"call":"mbox_post"}],"receive":[{"call":"mbox_fetch"}]}
+{"kind":"rule","id":"mbox","title":"Mailbox","type":"queue","send":[{"call":"mbox_post","key":1,"keyMember":true}],"receive":[{"call":"mbox_fetch","key":1,"keyMember":true}]}
 ```
 
 ### `connection`
@@ -151,7 +151,9 @@ Exactly one form (a connection with none of them is an error):
   the handler named at those send sites; that picks the definition.
 
 - **Dispatcher**: non-empty `receive` only (no `key`, no `send`). Names functions that dispatch
-  on keys (a switch over message types); the rule must have `receive` matchers. `send` alone is
-  an error.
+  on keys (a switch over message types); the rule must have `receive` matchers, and each function
+  must hold at least one receive site of the rule. Confirms every key reactor (and handler
+  registered there) whose receive site lies inside those functions. It never confirms a key
+  that has no receive site. `send` alone is an error.
 
 Anchors are the usual `file` + `symbol` (+ `sig`).

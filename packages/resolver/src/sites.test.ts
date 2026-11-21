@@ -39,12 +39,28 @@ describe('scan', () => {
       'job receive case rt_main JOB_READ_CNF -',
       'job receive case rt_main JOB_TICK -',
       'job receive case rt_main JOB_WRITE_CNF -',
+      'job send assign tick_done JOB_TICK -',
+      'job send call job_post_typed type done',
       'job send call request_read JOB_READ_CNF read_done',
       'job send call request_write JOB_WRITE_CNF write_done',
-      'mbox receive call rt_main - -',
-      'mbox send call job_post - -',
+      'job send call start_tick JOB_TICK tick_done',
+      'mbox receive call rt_main main_box -',
+      'mbox send call job_post main_box -',
+      'mbox send call tick_done main_box -',
       'timer send call start_poll - on_poll_timeout',
     ]);
+  });
+
+  it('keys a mailbox by member and drops assigned keys the keys filter rejects', () => {
+    expect(sites('src/rt/box.c').sort()).toEqual([
+      'mbox receive call rt_poll box -',
+      'mbox send call rt_send box -',
+    ]);
+    // `job->type = type` (job_post) and the JOB_NONE resets are filtered out by "keys".
+    const keys = scan('src/rt/jobs.c', read('src/rt/jobs.c'), fixtureRules)
+      .filter((s) => s.matcher === 'assign')
+      .map((s) => s.key);
+    expect(keys).toEqual(['JOB_TICK']);
   });
 
   it('finds a designated initializer at file scope and an assignment', () => {
@@ -60,7 +76,9 @@ describe('scan', () => {
 
   it('reports the line of the matched name', () => {
     const text = read('src/rt/jobs.c');
-    const site = scan('src/rt/jobs.c', text, fixtureRules).find((s) => s.key === 'JOB_TICK')!;
+    const site = scan('src/rt/jobs.c', text, fixtureRules).find(
+      (s) => s.role === 'receive' && s.key === 'JOB_TICK',
+    )!;
     expect(text.split('\n')[site.line]).toContain('case JOB_TICK');
   });
 

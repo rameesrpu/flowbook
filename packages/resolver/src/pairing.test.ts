@@ -64,8 +64,11 @@ describe('buildConnectionIndex on the fixture', () => {
     expect(r).toMatchObject({ file: 'src/rt/jobs.c', line: 18, column: 12 });
   });
 
-  it('pairs an event flag, unconfirmed', () => {
-    expect(reactorsOf('on_poll_timeout')).toEqual(['key rt_main EVT_SAVE false']);
+  it('confirms an event flag through the dispatcher connection on rt_main', () => {
+    expect(reactorsOf('on_poll_timeout')).toEqual(['key rt_main EVT_SAVE true']);
+    const p = pairingOf(index, 'on_poll_timeout')!;
+    expect(p.connection).toBe('rt-events');
+    expect(p.title).toBe('Main task events');
   });
 
   it('pairs a callback slot through its registration, unconfirmed', () => {
@@ -75,13 +78,37 @@ describe('buildConnectionIndex on the fixture', () => {
     ]);
   });
 
-  it('pairs a plain queue through an anchored connection', () => {
-    expect(reactorsOf('job_post')).toEqual(['anchored rt_main - true']);
+  it('pairs a queue through an anchored connection', () => {
+    expect(reactorsOf('job_post')).toEqual(['anchored rt_main main_box true']);
     expect(pairingOf(index, 'job_post')!.connection).toBe('main-box');
   });
 
+  it('pairs a mailbox reached through different pointer chains by member key', () => {
+    // rt_send posts `rt->box`, rt_poll fetches `ctx->rt->box`.
+    expect(reactorsOf('rt_send')).toEqual(['key rt_poll box true']);
+    expect(pairingOf(index, 'rt_send')!.connection).toBe('rt-box');
+  });
+
+  it('keeps an assigned key only when it passes the keys filter', () => {
+    const assigned = index.sites.filter((s) => s.rule === 'job' && s.role === 'send');
+    expect(assigned.map((s) => s.key)).not.toContain('JOB_NONE');
+    expect(reactorsOf('tick_done')).toEqual(['key rt_main JOB_TICK false']);
+  });
+
+  it('marks a wrapper that forwards its key and pairs its callers', () => {
+    const p = pairingOf(index, 'job_post_typed')!;
+    expect(p.forwarded).toBe(true);
+    expect(p.send.forwards).toEqual({ param: 'type', position: 1 });
+    expect(p.missingReceive).toBeUndefined();
+    expect(p.reactors).toEqual([]);
+    expect(reactorsOf('start_tick')).toEqual([
+      'key rt_main JOB_TICK false',
+      'handler tick_done - true',
+    ]);
+  });
+
   it('lists receives nobody sends to', () => {
-    expect(index.unpairedReceives.map((s) => s.key)).toEqual(['JOB_TICK', 'data_cb']);
+    expect(index.unpairedReceives.map((s) => s.key)).toEqual(['data_cb']);
   });
 
   it('has no diagnostics on the fixture', () => {
@@ -100,7 +127,7 @@ describe('buildConnectionIndex on the fixture', () => {
       )
       .map((p) => `${p.send.file}:${p.send.line}`);
     expect(order).toEqual(sorted);
-    expect(index.pairings).toHaveLength(6);
+    expect(index.pairings).toHaveLength(11);
   });
 
   it('sendersOf a case line returns its posters', () => {
@@ -119,13 +146,13 @@ describe('buildConnectionIndex on the fixture', () => {
     expect(ruleSummaries(index, ws.connections)).toEqual([
       {
         rule: 'job',
-        send: 2,
+        send: 5,
         receive: 3,
-        paired: 2,
+        paired: 3,
         confirmed: 1,
-        unpaired: 1,
+        unpaired: 0,
         missingReceive: 0,
-        forwarding: 0,
+        forwarding: 1,
         keyed: true,
       },
       {
@@ -144,7 +171,7 @@ describe('buildConnectionIndex on the fixture', () => {
         send: 1,
         receive: 1,
         paired: 1,
-        confirmed: 0,
+        confirmed: 1,
         unpaired: 0,
         missingReceive: 0,
         forwarding: 0,
@@ -163,14 +190,14 @@ describe('buildConnectionIndex on the fixture', () => {
       },
       {
         rule: 'mbox',
-        send: 1,
-        receive: 1,
-        paired: 1,
+        send: 3,
+        receive: 2,
+        paired: 2,
         confirmed: 1,
         unpaired: 0,
         missingReceive: 0,
         forwarding: 0,
-        keyed: false,
+        keyed: true,
       },
     ]);
   });

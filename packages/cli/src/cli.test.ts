@@ -129,11 +129,11 @@ describe('sites', () => {
   it('prints a summary line per rule', () => {
     expect(sites(ctx)).toBe(0);
     expect(out.slice(-5)).toEqual([
-      'job: 2 send, 3 receive, 2 keys paired (1 confirmed), 1 unpaired',
+      'job: 5 send, 3 receive, 3 keys paired (1 confirmed), 0 unpaired, 1 forwarding',
       'timer: 1 send, 0 receive, 1 sends paired (1 confirmed), 0 unpaired',
-      'event: 1 send, 1 receive, 1 keys paired (0 confirmed), 0 unpaired',
+      'event: 1 send, 1 receive, 1 keys paired (1 confirmed), 0 unpaired',
       'app-cb: 1 send, 2 receive, 1 keys paired (0 confirmed), 1 unpaired',
-      'mbox: 1 send, 1 receive, 1 sends paired (1 confirmed), 0 unpaired',
+      'mbox: 3 send, 2 receive, 2 keys paired (1 confirmed), 0 unpaired',
     ]);
   });
 
@@ -159,7 +159,7 @@ describe('sites', () => {
     expect(out.find((l) => l.includes('job send JOB_WRITE_CNF → '))).toMatch(
       /→ write_done \? · no receive site for JOB_WRITE_CNF$/,
     );
-    expect(out.find((l) => l.startsWith('job: '))).toMatch(/, 1 without receive site$/);
+    expect(out.find((l) => l.startsWith('job: '))).toContain(', 1 without receive site');
     out.length = 0;
     sites(ctx, { json: true });
     const data = JSON.parse(out.join('\n')) as {
@@ -177,33 +177,33 @@ describe('sites', () => {
       writeFileSync(join(root, file), readFileSync(join(root, file), 'utf8') + code);
 
     it('names the forwarded parameter, counts it, and leaves --unpaired alone', () => {
-      wrapper('src/rt/jobs.c', '\nvoid wrap(int a, int type) { event_set(type); }\n');
+      wrapper('src/rt/jobs.c', '\nvoid wrap(int a, int kind) { event_set(kind); }\n');
       sites(ctx);
-      expect(out.find((l) => l.includes('event send type'))).toMatch(
-        /jobs\.c:\d+: event send type → forwards parameter type \(argument 2 of wrap\)$/,
+      expect(out.find((l) => l.includes('event send kind'))).toMatch(
+        /jobs\.c:\d+: event send kind → forwards parameter kind \(argument 2 of wrap\)$/,
       );
       expect(out.find((l) => l.startsWith('event: '))).toMatch(/, 1 forwarding$/);
-      expect(out.find((l) => l.startsWith('job: '))).not.toContain('forwarding');
+      expect(out.find((l) => l.startsWith('job: '))).toMatch(/, 1 forwarding$/);
       out.length = 0;
       sites(ctx, { json: true });
       const data = JSON.parse(out.join('\n')) as {
         sites: { key?: string; forwards?: unknown; forwarded?: boolean }[];
       };
-      const row = data.sites.find((s) => s.key === 'type')!;
-      expect(row.forwards).toEqual({ param: 'type', position: 2 });
+      const row = data.sites.find((s) => s.key === 'kind')!;
+      expect(row.forwards).toEqual({ param: 'kind', position: 2 });
       expect(row.forwarded).toBe(true);
       out.length = 0;
       sites(ctx, { unpaired: true });
-      expect(out.some((l) => l.includes('event send type'))).toBe(false);
+      expect(out.some((l) => l.includes('event send kind'))).toBe(false);
     });
 
     it('prints the reactors of a forwarding send that has some', () => {
       wrapper(
         'src/rt/jobs.c',
-        '\nvoid wrap2(int a, job_type_t type) { job_post(0, type, read_done); }\n',
+        '\nvoid wrap2(int a, job_type_t kind) { job_post(0, kind, read_done); }\n',
       );
       sites(ctx);
-      const line = out.find((l) => l.includes('job send type'))!;
+      const line = out.find((l) => l.includes('job send kind'))!;
       expect(line).toContain('read_done');
       expect(line).not.toContain('no receive site');
       expect(line).not.toContain('forwards parameter');
@@ -213,8 +213,7 @@ describe('sites', () => {
   it('--unpaired lists only unpaired sites', () => {
     sites(ctx, { unpaired: true });
     const lines = out.filter((l) => /^\S+:\d+: /.test(l));
-    expect(lines).toHaveLength(2);
-    expect(lines.some((l) => /jobs\.c:\d+: job receive JOB_TICK → unpaired$/.test(l))).toBe(true);
+    expect(lines).toHaveLength(1);
     expect(lines.some((l) => /app\.c:\d+: app-cb receive data_cb → unpaired$/.test(l))).toBe(true);
   });
 
@@ -234,7 +233,7 @@ describe('sites', () => {
     };
     expect(data.rules.map((r) => r.rule)).toEqual(['job', 'timer', 'event', 'app-cb', 'mbox']);
     const src = readFileSync(join(root, 'src/rt/jobs.c'), 'utf8').split('\n');
-    const tick = data.sites.find((s) => s.key === 'JOB_TICK')!;
+    const tick = data.sites.find((s) => s.role === 'receive' && s.key === 'JOB_TICK')!;
     expect(src[tick.line - 1]).toContain('case JOB_TICK');
   });
 
@@ -257,7 +256,7 @@ describe('sites', () => {
   });
 
   it('prints errors in connections.jsonl to stderr and exits 1 (I4)', () => {
-    edit('.flowbook/connections.jsonl', '"handler":2', '"handlr":2');
+    edit('.flowbook/connections.jsonl', '"timer_add","handler":2', '"timer_add","handlr":2');
     expect(sites(ctx)).toBe(1);
     expect(err).toHaveLength(1);
     expect(err[0]).toMatch(/\.flowbook\/connections\.jsonl:2: error: .*handlr/);

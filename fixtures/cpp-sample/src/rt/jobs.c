@@ -1,7 +1,7 @@
 #include "rt.h"
 
 static struct mbox *main_box;
-static struct job read_job, write_job;
+static struct job read_job, write_job, tick_job;
 
 /* Queue a job for the main task. */
 void job_post(struct job *job, job_type_t type, job_cb_t callback) {
@@ -47,3 +47,14 @@ void rt_main(void) {
     }
   }
 }
+
+/* The tick job queues itself again when it is done. */
+static void tick_done(struct job *job) {
+  job->type = JOB_TICK;
+  mbox_post(main_box, job);
+}
+
+/* Queue the tick job; the caller picks its type and callback. */
+void job_post_typed(job_type_t type, job_cb_t done) { job_post(&tick_job, type, done); }
+
+void start_tick(void) { job_post_typed(JOB_TICK, tick_done); }

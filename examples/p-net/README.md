@@ -11,7 +11,9 @@ into the application, and the background worker's event flags.
 | `app-cb` | the stack calls `net->fspm_cfg.<name>_cb (…)`; the application registers `cfg.<name>_cb = fn`             |
 | `bg`     | `os_event_set (net->pf_bg_worker.events, BG_JOB_EVENT_…)`; received by the flag tests in `bg_worker_task` |
 
-The background worker's flags have keyed connections. The callback registrations are not
+One dispatcher connection, `bg.dispatch` on `bg_worker_task`, confirms every background worker
+flag tested there (verified by reading the function); it replaces the 10 keyed connections the
+file used to have (13 records → 4). The callback registrations are not
 confirmed: this repository contains no application, so the only registrations are in the
 integration test fixture (`test/utils_for_testing.cpp`).
 
@@ -39,7 +41,7 @@ Open `examples/p-net` (not the repository root) in VS Code to see the lenses.
 `flowbook sites --root examples/p-net` ends with:
 
 ```
-sched: 42 send, 0 receive, 41 sends paired (41 confirmed), 1 unpaired
+sched: 42 send, 0 receive, 41 sends paired (41 confirmed), 0 unpaired, 1 forwarding
 app-cb: 16 send, 13 receive, 13 keys paired (0 confirmed), 3 unpaired
 bg: 10 send, 11 receive, 10 keys paired (10 confirmed), 0 unpaired
 ```
@@ -55,16 +57,25 @@ Against the grep counts in the design (17 scheduler handlers, 16 `fspm_cfg` call
   `sm_released_cb` in `pf_plugsm.c`). No other `…_cb` field is invoked, so the rule needs no
   `files` limit.
 - `bg_worker_task` tests `BG_JOB_EVENT_UPDATE_PORTS_STATUS` twice; one of the two is a log
-  condition inside `#ifdef BG_WORKER_LOG_JOBS`, hence 11 receive sites for 10 flags.
+  condition inside `#ifdef BG_WORKER_LOG_JOBS`, hence 11 receive sites for 10 flags. The
+  dispatcher confirms both, so the send line lists `bg_worker_task` twice.
+- `BG_JOB_EVENT_CLEAR_SNMP_SYSTEM_LOCATION_NVM_DATA` is tested and handled in `bg_worker_task`
+  but is not in its wait `mask`; Flowbook pairs the test, it does not check the mask.
+
+### Forwarding site
+
+`pf_scheduler.c:267` (`pf_scheduler_restart` passing its own `cb` parameter to
+`pf_scheduler_add`) is listed as `→ forwards parameter cb (argument 3 of pf_scheduler_restart)`
+and counted as `1 forwarding`, not as unpaired. The second send matcher matches the callers of
+`pf_scheduler_restart`, so `check` has no warning for it.
 
 ### Unpaired sites
 
-| Site                                            | Why                                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `pf_scheduler.c:267` sched send `cb`            | `pf_scheduler_restart` forwarding its own parameter; its callers are matched directly |
-| `pf_fspm.c:1363` app-cb send `alarm_ack_cnf_cb` | the test fixture does not register it                                                 |
-| `pf_plugsm.c:117` app-cb send `sm_released_cb`  | the test fixture does not register it                                                 |
-| `pf_fspm.c:1389` app-cb send `reset_cb`         | the test fixture only assigns `NULL`, which is not a registration                     |
+| Site                                            | Why                                                               |
+| ----------------------------------------------- | ----------------------------------------------------------------- |
+| `pf_fspm.c:1363` app-cb send `alarm_ack_cnf_cb` | the test fixture does not register it                             |
+| `pf_plugsm.c:117` app-cb send `sm_released_cb`  | the test fixture does not register it                             |
+| `pf_fspm.c:1389` app-cb send `reset_cb`         | the test fixture only assigns `NULL`, which is not a registration |
 
 ## Scan times
 

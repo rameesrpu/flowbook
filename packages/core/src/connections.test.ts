@@ -95,10 +95,10 @@ describe('1b rule fields', () => {
 });
 
 describe('connections', () => {
-  it('parses the fixture: 5 rules, 2 connections, no diagnostics', () => {
+  it('parses the fixture: 5 rules, 4 connections, no diagnostics', () => {
     const c = parseConnections(fixture, F);
     expect(c.rules.length).toBe(5);
-    expect(c.connections.length).toBe(2);
+    expect(c.connections.length).toBe(4);
     expect(diag(fixture)).toEqual([]);
   });
 

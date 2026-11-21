@@ -112,14 +112,27 @@ describe('documentLenses', () => {
     expect(lensesOf(JOBS)).toContain('void start_poll(void) {  | ↳ on_poll_timeout');
   });
 
-  it('titles a test reactor', () => {
+  it('titles a test reactor confirmed by a dispatcher connection', () => {
     expect(lensesOf(JOBS)).toContain(
-      'event_set(EVT_SAVE); | ↳ rt_main · test EVT_SAVE · unconfirmed',
+      'event_set(EVT_SAVE); | ↳ Main task events: rt_main · test EVT_SAVE',
     );
   });
 
   it('titles an anchored queue', () => {
     expect(lensesOf(JOBS)).toContain('mbox_post(main_box, job) | ↳ Main mailbox: rt_main');
+  });
+
+  it('titles the forwarding send inside the fixture wrapper', () => {
+    expect(lensesOf(JOBS)).toContain(
+      'void job_post_typed(job_ | ↳ forwards parameter `type` to callers of job_post_typed',
+    );
+  });
+
+  it('titles a mailbox paired by member key', () => {
+    expect(lensesOf('src/rt/box.c')).toEqual([
+      'void rt_send(struct rt * | ↳ Runtime mailbox: rt_poll',
+      'mbox_fetch(ctx->rt->box, | ↳ posted from 1 place',
+    ]);
   });
 
   it('shows the registered function for a callback slot', () => {
@@ -193,7 +206,9 @@ describe('documentLenses', () => {
       'case JOB_READ_CNF: | ↳ 2 keys · posted from 2 places',
     ]);
     expect(all.filter((l) => l.startsWith('case JOB_WRITE_CNF:'))).toEqual([]);
-    expect(all.filter((l) => l.startsWith('case JOB_TICK:'))).toEqual([]);
+    expect(all.filter((l) => l.startsWith('case JOB_TICK:'))).toEqual([
+      'case JOB_TICK: | ↳ posted from 2 places',
+    ]);
   });
 
   it('puts a sender lens on a handler definition', () => {
