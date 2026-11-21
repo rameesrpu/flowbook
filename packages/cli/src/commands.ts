@@ -238,12 +238,21 @@ function reactorText(index: ConnectionIndex, p: Pairing): string {
     .join(', ');
 }
 
-function siteLine(index: ConnectionIndex, site: Site, unpaired: boolean): string {
+function siteLine(
+  index: ConnectionIndex,
+  site: Site,
+  unpaired: boolean,
+  pairingOf: Map<Site, Pairing>,
+): string {
   const what = `${site.rule} ${site.role} ${site.key ?? site.handler ?? ''}`.trimEnd();
   const head = `${site.file}:${site.line + 1}: ${what}`;
   if (site.role === 'send') {
-    const p = index.pairings.find((x) => x.send === site)!;
+    const p = pairingOf.get(site)!;
     const missing = p.missingReceive ? ` · no receive site for ${site.key}` : '';
+    if (p.reactors.length === 0 && site.forwards) {
+      const { param, position } = site.forwards;
+      return `${head} → forwards parameter ${param} (argument ${position} of ${leaf(site.symbol ?? '')})`;
+    }
     return `${head} → ${p.reactors.length ? reactorText(index, p) : 'unpaired'}${missing}`;
   }
   if (unpaired) return `${head} → unpaired`;
@@ -276,10 +285,11 @@ export function sites(
     scanRoot(ctx.root, ws.connections, ctx.resolver, undefined, skipped(ctx)),
   );
   const silent = new Set(index.unpairedReceives);
+  const pairingOf = new Map(index.pairings.map((p) => [p.send, p]));
   const isUnpaired = (s: Site) => {
     if (s.role !== 'send') return silent.has(s);
-    const p = index.pairings.find((x) => x.send === s)!;
-    return p.reactors.length === 0 || p.missingReceive === true;
+    const p = pairingOf.get(s)!;
+    return (p.reactors.length === 0 && !p.forwarded) || p.missingReceive === true;
   };
   const shown = index.sites.filter(
     (s) => (opts.rule === undefined || s.rule === opts.rule) && (!opts.unpaired || isUnpaired(s)),
@@ -299,9 +309,11 @@ export function sites(
         symbol: s.symbol,
       };
       if (s.role === 'send') {
-        const p = index.pairings.find((x) => x.send === s)!;
+        const p = pairingOf.get(s)!;
         return {
           ...row,
+          ...(s.forwards ? { forwards: s.forwards } : {}),
+          ...(p.forwarded ? { forwarded: true } : {}),
           reactors: p.reactors.map((r) => ({ ...r, line: r.line + 1, column: r.column + 1 })),
           ...(p.missingReceive ? { missingReceive: true } : {}),
         };
@@ -314,12 +326,13 @@ export function sites(
     ctx.io.out(JSON.stringify({ sites: rows, rules: summaries }, null, 2));
     return code;
   }
-  for (const s of shown) ctx.io.out(siteLine(index, s, silent.has(s)));
+  for (const s of shown) ctx.io.out(siteLine(index, s, silent.has(s), pairingOf));
   for (const r of summaries) {
     ctx.io.out(
       `${r.rule}: ${r.send} send, ${r.receive} receive, ${r.paired} ${r.keyed ? 'keys' : 'sends'} paired ` +
         `(${r.confirmed} confirmed), ${r.unpaired} unpaired` +
-        (r.missingReceive > 0 ? `, ${r.missingReceive} without receive site` : ''),
+        (r.missingReceive > 0 ? `, ${r.missingReceive} without receive site` : '') +
+        (r.forwarding > 0 ? `, ${r.forwarding} forwarding` : ''),
     );
   }
   return code;

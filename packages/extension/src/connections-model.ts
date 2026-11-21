@@ -118,7 +118,13 @@ function missingReceiveText(p: Pairing, sites: Site[]): string {
 export function sendLensTitle(pairings: Pairing | Pairing[], sites: Site[]): string {
   const list = Array.isArray(pairings) ? pairings : [pairings];
   const shown = shownOf(list, sites);
-  if (shown.length === 0) return '↳ no reactor found';
+  if (shown.length === 0) {
+    const fwd = list.find((p) => p.forwarded && p.send.forwards);
+    if (fwd && list.every((p) => p.forwarded)) {
+      return `↳ forwards parameter \`${fwd.send.forwards!.param}\` to callers of ${(fwd.send.symbol ?? '').replace(/^.*:/, '')}`;
+    }
+    return '↳ no reactor found';
+  }
   const [first, second] = shown;
   const pair = isReceiveThenHandler(shown);
   let body: string;
@@ -264,6 +270,7 @@ export function targetsAt(
 export function promptAt(index: ConnectionIndex, rel: string, line: number): string | undefined {
   const pairings = pairingsOn(index, rel, line);
   if (pairings.length === 0 || shownOf(pairings, index.sites).length > 0) return undefined;
+  if (pairings.every((p) => p.forwarded)) return undefined;
   return pairings.map((p) => agentPrompt(p.send)).join('\n\n');
 }
 

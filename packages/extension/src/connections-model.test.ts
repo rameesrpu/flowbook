@@ -99,6 +99,15 @@ describe('documentLenses', () => {
     expect(lens!.title).toBe('↳ x_cb · no receive site for E_X');
   });
 
+  it('titles a forwarding send without reactors and offers no agent prompt', () => {
+    const jsonl = rule({ id: 'ev', send: [{ call: 'post', key: 1 }], receive: [{ test: 'E_.*' }] });
+    const src = 'void post(int k);\nvoid wrap(int a, int type) { post(type); }\n';
+    const lenses = inlineLenses(jsonl, { 'a.c': src }, 'a.c').filter((l) => l.line === 1);
+    expect(lenses).toHaveLength(1);
+    expect(lenses[0]!.title).toBe('↳ forwards parameter `type` to callers of wrap');
+    expect(lenses[0]!.prompt).toBeUndefined();
+  });
+
   it('titles a handler-only post', () => {
     expect(lensesOf(JOBS)).toContain('void start_poll(void) {  | ↳ on_poll_timeout');
   });

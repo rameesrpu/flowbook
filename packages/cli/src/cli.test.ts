@@ -172,6 +172,44 @@ describe('sites', () => {
     expect(data.rules.find((r) => r.rule === 'job')!.missingReceive).toBe(1);
   });
 
+  describe('forwarding sends', () => {
+    const wrapper = (file: string, code: string) =>
+      writeFileSync(join(root, file), readFileSync(join(root, file), 'utf8') + code);
+
+    it('names the forwarded parameter, counts it, and leaves --unpaired alone', () => {
+      wrapper('src/rt/jobs.c', '\nvoid wrap(int a, int type) { event_set(type); }\n');
+      sites(ctx);
+      expect(out.find((l) => l.includes('event send type'))).toMatch(
+        /jobs\.c:\d+: event send type → forwards parameter type \(argument 2 of wrap\)$/,
+      );
+      expect(out.find((l) => l.startsWith('event: '))).toMatch(/, 1 forwarding$/);
+      expect(out.find((l) => l.startsWith('job: '))).not.toContain('forwarding');
+      out.length = 0;
+      sites(ctx, { json: true });
+      const data = JSON.parse(out.join('\n')) as {
+        sites: { key?: string; forwards?: unknown; forwarded?: boolean }[];
+      };
+      const row = data.sites.find((s) => s.key === 'type')!;
+      expect(row.forwards).toEqual({ param: 'type', position: 2 });
+      expect(row.forwarded).toBe(true);
+      out.length = 0;
+      sites(ctx, { unpaired: true });
+      expect(out.some((l) => l.includes('event send type'))).toBe(false);
+    });
+
+    it('prints the reactors of a forwarding send that has some', () => {
+      wrapper(
+        'src/rt/jobs.c',
+        '\nvoid wrap2(int a, job_type_t type) { job_post(0, type, read_done); }\n',
+      );
+      sites(ctx);
+      const line = out.find((l) => l.includes('job send type'))!;
+      expect(line).toContain('read_done');
+      expect(line).not.toContain('no receive site');
+      expect(line).not.toContain('forwards parameter');
+    });
+  });
+
   it('--unpaired lists only unpaired sites', () => {
     sites(ctx, { unpaired: true });
     const lines = out.filter((l) => /^\S+:\d+: /.test(l));
