@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Resolver } from '@flowbook/resolver';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { check, resolve, sites, stale, stamp, type Context } from './commands.js';
+import { check, resolve, sites, stale, stamp, states, type Context } from './commands.js';
 
 const fixture = fileURLToPath(new URL('../../../fixtures/cpp-sample', import.meta.url));
 
@@ -34,7 +34,9 @@ const edit = (file: string, from: string, to: string) => {
 describe('check', () => {
   it('passes on the stamped fixture', () => {
     expect(check(ctx)).toBe(0);
-    expect(out.at(-1)).toBe('2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped)');
+    expect(out.at(-1)).toBe(
+      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source states',
+    );
   });
 
   it('ignores comment and formatting changes', () => {
@@ -139,7 +141,7 @@ describe('sites', () => {
     expect(out.slice(-5)).toEqual([
       'job: 5 send, 3 receive, 3 keys paired (1 confirmed), 0 unpaired, 1 forwarding',
       'timer: 1 send, 0 receive, 1 sends paired (1 confirmed), 0 unpaired',
-      'event: 1 send, 1 receive, 1 keys paired (1 confirmed), 0 unpaired',
+      'event: 3 send, 1 receive, 1 keys paired (1 confirmed), 0 unpaired',
       'app-cb: 1 send, 2 receive, 1 keys paired (0 confirmed), 1 unpaired',
       'mbox: 3 send, 2 receive, 2 keys paired (1 confirmed), 0 unpaired',
     ]);
@@ -331,13 +333,17 @@ describe('sites', () => {
 describe('check with connections', () => {
   it('stays clean on the fixture', () => {
     expect(check(ctx)).toBe(0);
-    expect(out.at(-1)).toBe('2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped)');
+    expect(out.at(-1)).toBe(
+      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source states',
+    );
   });
 
   it('is unchanged when connections.jsonl is deleted', () => {
     rmSync(join(root, '.flowbook/connections.jsonl'));
     expect(check(ctx)).toBe(0);
-    expect(out.at(-1)).toBe('2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped)');
+    expect(out.at(-1)).toBe(
+      '2 flows, 17 nodes: 0 errors, 0 warnings (0 stale, 0 unstamped), 1 unknown source states',
+    );
   });
 
   it('fails when a confirmed key loses its case', () => {
@@ -364,5 +370,75 @@ describe('check with connections', () => {
     );
     expect(check(ctx)).toBe(0);
     expect(out.join('\n')).toMatch(/connections\.jsonl:\d+: warning: rule "ghost" matches no site/);
+  });
+});
+
+describe('states', () => {
+  it('prints a line per transition and a summary per machine', () => {
+    expect(states(ctx)).toBe(0);
+    expect(out).toContain(
+      'src/rt/sm_link.c:19: link IDLE → RUN on LINK_EV_START · sets off event → rt_main',
+    );
+    expect(out).toContain('src/rt/sm_link.c:29: link RUN → FAIL on LINK_EV_ERROR if l->retries>3');
+    expect(out).toContain(
+      'src/rt/sm_cm.c:17: cm T1 INIT → RUN on CM_EV_START · sets off event → rt_main',
+    );
+    expect(out).toContain('src/rt/sm_dl.c:13: dl STARTUP → PREOP in dl_startup if d->cmd==1');
+    expect(out).toContain('src/rt/sm_dev.c:13: dev * → POWER_ON in dev_abort');
+    expect(out.slice(-4)).toEqual([
+      'link: 3 states, 3 transitions (3 from a case), 1 sets off',
+      'dl: 3 states, 2 transitions (2 from a caller)',
+      'cm: 3 states, 4 transitions (4 from a table), 1 sets off',
+      'dev: 3 states, 3 transitions (1 from a case, 1 from a scope, 1 unknown)',
+    ]);
+  });
+
+  it('filters by machine', () => {
+    states(ctx, { machine: 'dev' });
+    expect(out).toHaveLength(4);
+    expect(out.every((l) => l.includes(' dev ') || l.startsWith('dev:'))).toBe(true);
+  });
+
+  it('rejects an unknown machine', () => {
+    expect(states(ctx, { machine: 'nope' })).toBe(1);
+    expect(err[0]).toContain('unknown machine "nope"');
+  });
+
+  it('lists only unknown source states with --unknown', () => {
+    states(ctx, { unknown: true });
+    expect(out.filter((l) => l.includes(' → '))).toEqual([
+      'src/rt/sm_dev.c:13: dev * → POWER_ON in dev_abort',
+    ]);
+  });
+
+  it('prints machines and diagnostics as json', () => {
+    states(ctx, { json: true, machine: 'cm' });
+    const data = JSON.parse(out.join('\n')) as {
+      machines: { id: string; transitions: { from: string; via: string }[] }[];
+      diagnostics: unknown[];
+    };
+    expect(data.machines.map((m) => m.id)).toEqual(['cm']);
+    expect(data.machines[0]!.transitions.map((t) => t.from)).toEqual([
+      'CM_ST_INIT',
+      'CM_ST_INIT',
+      'CM_ST_RUN',
+      'CM_ST_RUN',
+    ]);
+    expect(data.diagnostics).toEqual([]);
+  });
+
+  it('exits 1 when the machines file has errors', () => {
+    edit('.flowbook/machines.jsonl', '"id":"dev"', '"idd":"dev"');
+    expect(states(ctx)).toBe(1);
+    expect(err.some((l) => l.includes('machines.jsonl'))).toBe(true);
+  });
+});
+
+describe('check with machines', () => {
+  it('reports machine diagnostics and never fails strict on unknown sources', () => {
+    edit('.flowbook/machines.jsonl', '"state":"DEV_ST_POWER_ON"', '"state":"DEV_ST_TYPO"');
+    expect(check(ctx, { strict: true })).toBe(0);
+    expect(out.some((l) => l.includes('DEV_ST_TYPO') && l.includes('warning'))).toBe(true);
+    expect(out.at(-1)).toContain('1 unknown source states');
   });
 });

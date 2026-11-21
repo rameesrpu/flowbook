@@ -282,6 +282,27 @@ send sites are counted as `N forwarding`, not as keys, and are not listed by `--
 - Two unrelated struct fields with the same name match the same `invoke` or `assign` matcher.
   `files` narrows it; otherwise the pairings are simply unconfirmed candidates.
 
+## State machines
+
+Write machines in `.flowbook/machines.jsonl` (`machine` and `scope` records; the schema is in
+`references/schema.md`). One `machine` per state variable.
+
+1. Find the state variable and its setter: a `set_state (x, STATE)` call (`set: [{call, key}]`) or
+   an assignment `x->state = STATE` (`set: [{assign, as: "key"}]`). Give `states` (and `events`
+   when a nested `case` names them) as regexes over the constant names.
+2. Run `flowbook states --machine <id> --unknown`. It lists every transition whose source state
+   is unknown (`*`): setters outside any state `case`.
+3. Add a `scope` record only for a function you have read and know runs in one state (init code,
+   for example); it gives every set site inside it that source state. One record per function
+   group, not per transition.
+4. Tables (`{event, next-state, action}` rows, one array per source state): read the
+   table-of-tables once and write the `from` map (array name to source state) in the machine's
+   `tables` entry.
+5. Re-run `flowbook states`; the summary line counts transitions by how the source was found.
+   `flowbook check` reports bad records and counts unknown sources (never an error).
+
+Not read yet: designated-index rows (`[IDX] = {...}`), where the index is the source state.
+
 ## Example
 
 See [references/example.jsonl](references/example.jsonl) for a complete, valid flow with a

@@ -1,0 +1,5 @@
+{"kind":"machine","id":"link","title":"Link state machine","states":"LINK_ST_.*","events":"LINK_EV_.*","set":[{"call":"link_set_state","key":2}],"files":["src/rt/sm_link.c"]}
+{"kind":"machine","id":"dl","title":"Data link state machine","states":"DL_ST_.*","set":[{"assign":"dl_state","as":"key"}],"files":["src/rt/sm_dl.c"]}
+{"kind":"machine","id":"cm","title":"Configuration manager","states":"CM_ST_.*","events":"CM_EV_.*","tables":[{"rows":"cm_trans_s[0-9]+","event":1,"to":2,"action":3,"from":{"cm_trans_s0":"CM_ST_INIT","cm_trans_s1":"CM_ST_RUN"}}],"files":["src/rt/sm_cm.c"]}
+{"kind":"machine","id":"dev","title":"Device state machine","states":"DEV_ST_.*","set":[{"call":"dev_set_state","key":2}],"files":["src/rt/sm_dev.c"]}
+{"kind":"scope","id":"dev-init","machine":"dev","state":"DEV_ST_POWER_ON","in":[{"file":"src/rt/sm_dev.c","symbol":"dev_init"}]}

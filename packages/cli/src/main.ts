@@ -2,7 +2,7 @@ import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { findRoot, Resolver } from '@flowbook/resolver';
-import { check, resolve, sites, stale, stamp } from './commands.js';
+import { check, resolve, sites, stale, stamp, states } from './commands.js';
 import { consoleIo } from './io.js';
 
 const HELP = `flowbook — validate and maintain .flowbook flow diagrams
@@ -15,6 +15,8 @@ Usage:
   flowbook stale [--json]                list nodes whose code changed or disappeared
   flowbook sites [--rule <id>] [--unpaired] [--json]
                                          list connection sites and what they pair to
+  flowbook states [--machine <id>] [--unknown] [--json]
+                                         list state transitions with source state and triggers
 
 Options:
   --root <dir>   repository root (default: nearest parent containing .flowbook/)
@@ -33,6 +35,8 @@ async function main(argv: string[]): Promise<number> {
       all: { type: 'boolean' },
       rule: { type: 'string' },
       unpaired: { type: 'boolean' },
+      machine: { type: 'string' },
+      unknown: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -67,6 +71,8 @@ async function main(argv: string[]): Promise<number> {
       return stamp(ctx, args, values.all);
     case 'sites':
       return sites(ctx, values);
+    case 'states':
+      return states(ctx, values);
     case 'stale':
       return stale(ctx, values);
   }
